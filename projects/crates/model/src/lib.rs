@@ -10,6 +10,7 @@
 mod edit;
 mod files;
 mod inspect;
+mod search;
 mod store;
 mod summary;
 
@@ -27,7 +28,7 @@ const INSPECT_CHECKS: &[&str] = &["styles", "fonts", "images", "sections", "tabl
 const RENDER_FORMATS: &[&str] = &["svg", "png", "pdf"];
 
 /// Export targets the writer can produce.
-const EXPORT_TARGETS: &[&str] = &["docx", "dotx", "pdf", "html", "md"];
+const EXPORT_TARGETS: &[&str] = &["docx", "dotx", "pdf", "html", "md", "txt"];
 
 /// Stable failure of one binding operation.
 #[derive(Debug)]
@@ -76,7 +77,7 @@ pub fn capabilities() -> Value {
         ("doc", "unsupported", "unsupported", "unsupported"),
         ("rtf", "unsupported", "unsupported", "unsupported"),
         ("odt", "unsupported", "unsupported", "unsupported"),
-        ("txt", "supported", "supported", "unsupported"),
+        ("txt", "supported", "supported", "supported"),
         ("md", "supported", "supported", "supported"),
         ("html", "supported", "supported", "supported"),
         ("pdf", "partial", "partial", "supported"),
@@ -101,7 +102,7 @@ pub fn capabilities() -> Value {
     let mut export_targets = Map::new();
     for target in EXPORT_TARGETS {
         let level = match *target {
-            "docx" | "pdf" | "html" | "md" => "supported",
+            "docx" | "pdf" | "html" | "md" | "txt" => "supported",
             _ => "unsupported",
         };
         export_targets.insert((*target).to_string(), json!(level));
@@ -158,11 +159,26 @@ pub fn export(handle: u64, format: &str, target: &Path, overwrite: bool) -> Resu
     Ok(report)
 }
 
+/// Searches one document for text across section titles, paragraphs, list
+/// items and table cells, returning at most `limit` hits (default 100).
+pub fn find(handle: u64, query: &str, limit: Option<u32>) -> Result<Value, ServiceError> {
+    if query.is_empty() {
+        return Err(invalid("`query` must be a non-empty string"));
+    }
+    let limit = limit.map_or(search::DEFAULT_LIMIT, |value| value as usize);
+    store::with(handle, |entry| Value::Array(search::find(&entry.graph, query, limit)))
+        .ok_or_else(|| document_not_found(handle))
+}
+
 /// Applies a batch of edits and returns the new summary and revision.
 pub fn edit(handle: u64, request: &Value) -> Result<Value, ServiceError> {
     store::with_mut(handle, |entry| {
-        edit::apply(&mut entry.graph, request)?;
-        Ok(json!({ "document": summary::project(&entry.graph), "revision": entry.graph.revision }))
+        let results = edit::apply(&mut entry.graph, request)?;
+        Ok(json!({
+            "document": summary::project(&entry.graph),
+            "revision": entry.graph.revision,
+            "results": results,
+        }))
     })
     .ok_or_else(|| document_not_found(handle))?
 }
@@ -187,10 +203,11 @@ mod tests {
         assert_eq!(matrix["formats"]["docx"]["export"], json!("supported"));
         assert_eq!(matrix["formats"]["pdf"]["import"], json!("partial"));
         assert_eq!(matrix["formats"]["doc"]["import"], json!("unsupported"));
-        assert_eq!(matrix["formats"]["txt"]["export"], json!("unsupported"));
+        assert_eq!(matrix["formats"]["txt"]["export"], json!("supported"));
         assert_eq!(matrix["checks"]["sections"], json!("supported"));
         assert_eq!(matrix["checks"]["fonts"], json!("unsupported"));
         assert_eq!(matrix["exportTargets"]["pdf"], json!("supported"));
+        assert_eq!(matrix["exportTargets"]["txt"], json!("supported"));
         assert_eq!(matrix["exportTargets"]["dotx"], json!("unsupported"));
         assert_eq!(matrix["renderers"]["svg"], json!("unsupported"));
     }
@@ -200,6 +217,10 @@ mod tests {
         for error in [summary(999_999), inspect(999_999, None), edit(999_999, &json!({ "operations": [] }))] {
             assert_eq!(error.unwrap_err().code, "document/not-found");
         }
+        let error = find(999_999, "text", None).unwrap_err();
+        assert_eq!(error.code, "document/not-found");
+        let error = find(999_999, "", None).unwrap_err();
+        assert_eq!(error.code, "session/argument-invalid");
         let error = save(999_999, Path::new("report.oword"), true).unwrap_err();
         assert_eq!(error.code, "document/not-found");
         export(999_999, "docx", Path::new("report.docx"), true).unwrap_err();

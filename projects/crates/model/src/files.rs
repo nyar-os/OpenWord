@@ -5,18 +5,20 @@
 //! file and reports what the route can keep.
 
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
 
 use document_formats::{FormatError, export, import};
-use document_ir::{Block, BreakKind, DocumentEnvelope, DocumentGraph, Inline};
+use document_ir::{Block, BreakKind, DocumentEnvelope, DocumentGraph, Inline, NodeId, TableCell};
 use serde_json::{Value, json};
 
 use crate::{
-    ServiceError,
+    ServiceError, search,
     store::{self, Entry, Source},
+    summary,
 };
 
 /// Result of writing a native project.
@@ -114,6 +116,7 @@ pub(crate) fn export_graph(graph: &DocumentGraph, format: &str, target: &Path, o
         "md" => (export::markdown::export_markdown(graph).map_err(format_failure)?.into_bytes(), true),
         "html" => (export::html::export_html(graph).map_err(format_failure)?.into_bytes(), true),
         "pdf" => (export::pdf::export_pdf_bytes(graph).map_err(format_failure)?, false),
+        "txt" => (text_projection(graph).into_bytes(), true),
         other => {
             return Err(ServiceError::new("format/unsupported", format!("`{other}` has no export route in this build")));
         }
@@ -157,6 +160,84 @@ fn text_graph(text: &str) -> DocumentGraph {
         graph.push_block(Block::Paragraph { content });
     }
     graph
+}
+
+/// Plain-text projection of the committed graph.
+///
+/// The engine exposes no plain-text writer, so this route flattens the model:
+/// headings keep their level as `#` markers, list items use `-`, and table rows
+/// join cells with tabs. Table cell text appears in the row, never twice.
+fn text_projection(graph: &DocumentGraph) -> String {
+    let mut lines = Vec::new();
+    let mut seen = HashSet::new();
+    for root in search::roots(graph) {
+        push_text(graph, root, &mut seen, &mut lines);
+    }
+    if lines.is_empty() {
+        return String::new();
+    }
+    let mut output = lines.join("\n");
+    output.push('\n');
+    output
+}
+
+fn push_text(graph: &DocumentGraph, id: NodeId, seen: &mut HashSet<NodeId>, lines: &mut Vec<String>) {
+    if !seen.insert(id) {
+        return;
+    }
+    let Some(node) = graph.blocks.iter().find(|node| node.id == id)
+    else {
+        return;
+    };
+    match &node.block {
+        Block::Section { level, title, children, .. } => {
+            lines.push(format!("{} {}", "#".repeat(*level as usize), summary::flatten(title)));
+            for child in children {
+                push_text(graph, *child, seen, lines);
+            }
+        }
+        Block::Paragraph { content } => lines.push(summary::flatten(content)),
+        Block::List { items, .. } => {
+            for item in items {
+                lines.push(format!("- {}", summary::flatten(&item.content)));
+                for child in &item.children {
+                    push_text(graph, *child, seen, lines);
+                }
+            }
+        }
+        Block::Table { head, body, foot, .. } => {
+            for row in head.iter().chain(body.iter()).chain(foot.iter()) {
+                lines.push(row.cells.iter().map(|cell| cell_text(graph, cell)).collect::<Vec<_>>().join("\t"));
+            }
+        }
+        Block::Quote { children } => {
+            for child in children {
+                push_text(graph, *child, seen, lines);
+            }
+        }
+        Block::Code { content, .. } => lines.push(content.clone()),
+        Block::Math { formula } => lines.push(formula.source.clone()),
+        Block::Diagram { source, .. }
+        | Block::Chart { source, .. }
+        | Block::Engraving { source, .. }
+        | Block::Depiction { source, .. } => lines.push(source.clone()),
+        Block::RawHtml { html } => lines.push(html.clone()),
+        Block::Opaque { payload_hint, .. } if !payload_hint.is_empty() => lines.push(payload_hint.clone()),
+        _ => {}
+    }
+}
+
+fn cell_text(graph: &DocumentGraph, cell: &TableCell) -> String {
+    cell.children
+        .iter()
+        .filter_map(|id| graph.blocks.iter().find(|node| node.id == *id))
+        .filter_map(|node| match &node.block {
+            Block::Paragraph { content } => Some(summary::flatten(content)),
+            _ => None,
+        })
+        .map(|text| text.replace('\n', " "))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn read(path: &Path) -> Result<Vec<u8>, ServiceError> {

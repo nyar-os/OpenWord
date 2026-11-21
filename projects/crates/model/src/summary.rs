@@ -135,7 +135,8 @@ fn row_columns(row: &TableRow) -> u32 {
     row.cells.iter().fold(0u32, |total, cell| total.saturating_add(cell.colspan))
 }
 
-fn flatten(inlines: &[Inline]) -> String {
+/// Flattens inline content into the text every surface reads.
+pub(crate) fn flatten(inlines: &[Inline]) -> String {
     inlines.iter().map(Inline::plain_text).collect()
 }
 

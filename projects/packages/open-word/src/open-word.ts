@@ -26,6 +26,8 @@ import type {
     MergeResult,
     OpenWordOptions,
     RedoResult,
+    ReplaceOptions,
+    ReplaceReport,
     SaveOptions,
     SaveReport,
     StatsReport,
@@ -197,6 +199,50 @@ export class OpenWord {
             throw new OpenWordError('session/argument-invalid', '`limit` must be a positive integer');
         }
         return service.find(this.requireHandle(), query, limit);
+    }
+
+    /**
+     * Replaces `find` with `replacement` and reports the changed blocks.
+     *
+     * Matching is case-sensitive by default; `wholeWord` requires no word
+     * character on either side. A pass that finds nothing changes nothing, so
+     * it records no history entry. A committing pass advances the revision once
+     * and can be undone with `undo()`.
+     */
+    async replace(find: string, replacement: string, options: ReplaceOptions = {}): Promise<ReplaceReport> {
+        this.assertActive();
+        if (typeof find !== 'string' || find.length === 0) {
+            throw new OpenWordError('session/argument-invalid', '`find` must be a non-empty string');
+        }
+        if (typeof replacement !== 'string') {
+            throw new OpenWordError('session/argument-invalid', '`replacement` must be a string');
+        }
+        const caseSensitive = options?.caseSensitive;
+        const wholeWord = options?.wholeWord;
+        for (const [name, value] of [
+            ['caseSensitive', caseSensitive],
+            ['wholeWord', wholeWord],
+        ] as const) {
+            if (value !== undefined && typeof value !== 'boolean') {
+                throw new OpenWordError('session/argument-invalid', `\`${name}\` must be a boolean`);
+            }
+        }
+        const limit = options?.limit;
+        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+            throw new OpenWordError('session/argument-invalid', '`limit` must be a positive integer');
+        }
+        const expectedRevision = options?.expectedRevision;
+        if (expectedRevision !== undefined && (!Number.isInteger(expectedRevision) || expectedRevision < 0)) {
+            throw new OpenWordError('session/argument-invalid', '`expectedRevision` must be a non-negative integer');
+        }
+        return service.replace(this.requireHandle(), {
+            find,
+            replace: replacement,
+            caseSensitive,
+            wholeWord,
+            limit,
+            expectedRevision,
+        });
     }
 
     /** Releases every tracked handle. Idempotent. */

@@ -287,6 +287,48 @@ export interface FindHit {
     readonly text: string;
 }
 
+/** Options of `OpenWord.replace()`. */
+export interface ReplaceOptions {
+    /** Match case exactly. Defaults to `true`. */
+    readonly caseSensitive?: boolean;
+    /** Replace only matches with no word character on either side. Defaults to `false`. */
+    readonly wholeWord?: boolean;
+    /** Maximum number of replacements across the whole document. */
+    readonly limit?: number;
+    /** Reject the pass when the document is not at this revision. */
+    readonly expectedRevision?: number;
+}
+
+/** Request of `OpenWord.replace()`. */
+export interface ReplaceRequest extends ReplaceOptions {
+    /** Text to find. Must be non-empty. */
+    readonly find: string;
+    /** Replacement text. An empty string deletes every match. */
+    readonly replace: string;
+}
+
+/** One block a replacement pass changed. */
+export interface ReplaceAffectedBlock {
+    /** Stable block address: `section-N` for sections, `node-N` otherwise. */
+    readonly blockId: string;
+    /** Depth-first position of the block in document order. */
+    readonly blockIndex: number;
+    /** Occurrences replaced inside this block. */
+    readonly replaced: number;
+}
+
+/** Result of one replacement pass. A pass without matches changes nothing. */
+export interface ReplaceReport {
+    /** Committed summary after the pass. */
+    readonly document: DocumentSummary;
+    /** Revision after the pass. */
+    readonly revision: number;
+    /** Total occurrences replaced. */
+    readonly replaced: number;
+    /** Blocks that changed, in document order. */
+    readonly affected: readonly ReplaceAffectedBlock[];
+}
+
 /** One thing an import could not keep. */
 export interface ImportLoss {
     readonly code: string;

@@ -21,6 +21,7 @@ export interface NativeBinding {
     document_summary(handle: number): string;
     word_stats(handle: number): string;
     document_find(handle: number, query: string, limit?: number): string;
+    document_replace(handle: number, requestJson: string): string;
     document_edit(handle: number, requestJson: string): string;
     document_undo(handle: number, steps?: number): string;
     document_redo(handle: number, steps?: number): string;

@@ -145,6 +145,16 @@ fn document_find(ctx: CallContext) -> Result<JsValue> {
     respond(&ctx, &open_word_document::find(handle, &query, limit).map_err(failure_of)?)
 }
 
+/// Replaces text in one document handle with an optional case or whole-word rule.
+#[function]
+fn document_replace(ctx: CallContext) -> Result<JsValue> {
+    let handle = handle(&ctx, 0)?;
+    let raw = text(&ctx, 1)?;
+    let request: Value =
+        serde_json::from_str(&raw).map_err(|error| Error::new(format!("session/argument-invalid: {error}")))?;
+    respond(&ctx, &open_word_document::replace(handle, &request).map_err(failure_of)?)
+}
+
 /// Applies one JSON edit request to a document handle.
 #[function]
 fn document_edit(ctx: CallContext) -> Result<JsValue> {
@@ -273,6 +283,13 @@ impl IpcHandler for WordIpcHandler {
                     document_outcome(id, "findResult", open_word_document::find(handle, &query, limit))
                 }
                 _ => failure(id, "documentError", "session/argument-invalid: `handle` and `query` are required".to_string()),
+            },
+            "document.replace" => match handle_field(&value) {
+                Some(handle) => {
+                    let request = value.get("request").cloned().unwrap_or(Value::Null);
+                    document_outcome(id, "replaceResult", open_word_document::replace(handle, &request))
+                }
+                None => failure(id, "documentError", "session/argument-invalid: `handle` is required".to_string()),
             },
             "document.edit" => match handle_field(&value) {
                 Some(handle) => {
@@ -610,6 +627,7 @@ register_module![
     document_summary,
     word_stats,
     document_find,
+    document_replace,
     document_edit,
     document_undo,
     document_redo,

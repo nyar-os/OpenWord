@@ -23,7 +23,7 @@
             "title": "Document title",
             "template": "Template file to start from",
             "overwrite": "Replace the output file when it already exists",
-            "checks": "Comma-separated checks: styles, images, sections, tables, links",
+            "checks": "Comma-separated checks: styles, fonts, images, sections, tables, links",
             "format": "Export target: docx, dotx, pdf, html, md, txt or rtf",
             "paragraph": "Append a paragraph with this text",
             "heading": "Append a section heading with this text",
@@ -41,6 +41,8 @@
             "steps": "Number of edits to undo or redo (default 1)",
             "find": "Text to search for",
             "with": "Replacement text",
+            "ignoreCase": "Match text without regard to case",
+            "wholeWord": "Replace only matches with no word character on either side",
             "values": "JSON object of placeholder values, such as {\"name\":\"Ada\"}"
         }
     }

@@ -154,6 +154,35 @@ test('find needs an open document', async () => {
     await word.dispose();
 });
 
+test('replace validates the request before the engine is reached', async () => {
+    const word = new OpenWord();
+    const invalid: (() => Promise<unknown>)[] = [
+        () => word.replace('', 'x'),
+        () => word.replace(42 as unknown as string, 'x'),
+        () => word.replace('alpha', 42 as unknown as string),
+        () => word.replace('alpha', 'x', { caseSensitive: 'yes' as unknown as boolean }),
+        () => word.replace('alpha', 'x', { wholeWord: 1 as unknown as boolean }),
+        () => word.replace('alpha', 'x', { limit: 0 }),
+        () => word.replace('alpha', 'x', { expectedRevision: -1 }),
+    ];
+    for (const call of invalid) {
+        await assert.rejects(
+            call,
+            (error: unknown) => error instanceof OpenWordError && error.code === 'session/argument-invalid',
+        );
+    }
+    await word.dispose();
+});
+
+test('replace needs an open document', async () => {
+    const word = new OpenWord();
+    await assert.rejects(
+        word.replace('alpha', 'x'),
+        (error: unknown) => error instanceof OpenWordError && error.code === 'document/not-found',
+    );
+    await word.dispose();
+});
+
 test('undo, redo and merge validate arguments before the engine is reached', async () => {
     const word = new OpenWord();
     const invalid: (() => Promise<unknown>)[] = [

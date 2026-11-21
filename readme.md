@@ -37,7 +37,7 @@ open-word save report.docx --out report.oword
 open-word inspect report.docx --checks styles,tables,links
 open-word stats report.docx
 open-word find report.oword "revenue" --limit 5
-open-word replace report.oword --find "old name" --with "new name" --out report.oword --overwrite
+open-word replace report.oword --find "old name" --with "new name" --ignore-case --whole-word --out report.oword --overwrite
 open-word template letter.docx --values '{"name":"Ada","amount":42}' --out letter-filled.oword --overwrite
 open-word create --template letter.docx --title "Renewal" --out letter.oword
 open-word edit report.oword --heading "Results" --level 2 --paragraph "Numbers held." --out report.oword --overwrite
@@ -77,7 +77,12 @@ adds one grid column to every row, and deleting the last row or column is
 rejected. Every operation advances exactly one revision, a batch is validated
 before the first mutation, and `expectedRevision` rejects stale writes. `find`
 searches the same text in document order and reports character offsets per
-block. `inspect` runs structural rules (sections, tables, links, images, styles)
+block. `replace` searches titles, paragraphs, list items and table cells and
+returns the changed block addresses: matching is case-sensitive unless
+`--ignore-case` is given, `--whole-word` requires a non-word character on both
+sides, and `--limit` caps the total. One committing pass advances the revision
+once and is undoable; a pass with no match changes nothing. `inspect` runs
+structural rules (sections, tables, links, images, styles)
 and reports the revision it observed. PDF export is a projection and cannot be
 reopened for editing. Plain-text export uses `#` heading markers, `-` list items
 and tabbed table rows.

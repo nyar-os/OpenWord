@@ -11,6 +11,7 @@ mod edit;
 mod files;
 mod inspect;
 mod merge;
+mod replace;
 mod store;
 
 use std::{fmt, path::Path};
@@ -221,6 +222,46 @@ pub fn find(handle: u64, query: &str, limit: Option<u32>) -> Result<Value, Servi
     let limit = limit.map_or(100, |value| value as usize);
     store::with(handle, |entry| serde_json::to_value(document_ir::find(&entry.graph, query, limit)).expect("hits always serialize"))
         .ok_or_else(|| document_not_found(handle))
+}
+
+/// Replaces text in one document and reports the affected blocks.
+///
+/// The request is `{ find, replace, caseSensitive?, wholeWord?, limit?,
+/// expectedRevision? }`. `find` must be non-empty, `replace` may be empty to
+/// delete matches, matching is case-sensitive by default, `wholeWord` defaults
+/// to `false`, and `limit` caps the total number of replacements. Matching
+/// covers the same text `find` searches: section titles, paragraphs, list items,
+/// table cells and authored inline display text.
+///
+/// A committing pass advances the revision once and records the prior graph for
+/// undo. A pass with no match changes nothing, so its revision and history stay
+/// untouched. `expectedRevision` rejects a stale caller with
+/// `document/revision-conflict` before any text changes.
+pub fn replace(handle: u64, request: &Value) -> Result<Value, ServiceError> {
+    let request = replace::Request::parse(request)?;
+    store::with_history(handle, |entry| {
+        if let Some(expected) = request.expected_revision
+            && expected != entry.graph.revision
+        {
+            return Err(ServiceError::new(
+                "document/revision-conflict",
+                format!("expected revision {expected} but the document is at revision {}", entry.graph.revision),
+            ));
+        }
+        let before = entry.state().clone();
+        let outcome = replace::apply(&mut entry.graph, &request);
+        if outcome.replaced > 0 {
+            entry.graph.bump_revision();
+            entry.commit(before);
+        }
+        Ok(json!({
+            "document": summary_json(&entry.graph),
+            "revision": entry.graph.revision,
+            "replaced": outcome.replaced,
+            "affected": outcome.affected,
+        }))
+    })
+    .ok_or_else(|| document_not_found(handle))?
 }
 
 /// Applies a batch of edits and returns the new summary and revision.

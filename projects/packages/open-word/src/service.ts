@@ -23,6 +23,8 @@ import type {
     InspectReport,
     MergeResult,
     RedoResult,
+    ReplaceReport,
+    ReplaceRequest,
     SaveReport,
     StatsReport,
     UndoResult,
@@ -115,6 +117,11 @@ export function find(handle: number, query: string, limit?: number): readonly Fi
             ? binding('find').document_find(handle, query)
             : binding('find').document_find(handle, query, limit),
     );
+}
+
+/** Replaces text in one document and reports the affected blocks. */
+export function replace(handle: number, request: ReplaceRequest): ReplaceReport {
+    return decode<ReplaceReport>(() => binding('replace').document_replace(handle, JSON.stringify(request)));
 }
 
 /** Applies one edit batch and returns the new committed summary. */

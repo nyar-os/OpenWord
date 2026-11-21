@@ -444,6 +444,8 @@ cli
     .command('replace', 'cli.cmd.replace')
     .option('--find <text>', 'cli.opt.find')
     .option('--with <text>', 'cli.opt.with')
+    .option('--ignore-case', 'cli.opt.ignoreCase')
+    .option('--whole-word', 'cli.opt.wholeWord')
     .option('--out <file>', 'cli.opt.out')
     .option('--overwrite', 'cli.opt.overwrite')
     .actionCtx(async (options, _args, ctx) => {
@@ -460,8 +462,11 @@ cli
         }
         await withSession(async (word) => {
             await word.open({ path: file });
-            const report = await word.edit([{ type: 'document.replaceText', find, replace: replacement }]);
-            const replaced = report.results[0]?.replaced ?? 0;
+            const report = await word.replace(find, replacement, {
+                caseSensitive: !flag(options, 'ignore-case'),
+                wholeWord: flag(options, 'whole-word'),
+            });
+            const replaced = report.replaced;
             const out = text(options, 'out');
             if (out !== undefined) {
                 const saved = await word.save(out, { overwrite: flag(options, 'overwrite') });

@@ -361,3 +361,225 @@ fn edits_bump_once_per_operation_and_reject_stale_batches() {
 
     close(handle).expect("close");
 }
+
+fn table_grid(envelope: &Value) -> Vec<u64> {
+    let blocks = envelope["document"]["blocks"].as_array().expect("blocks");
+    let table = blocks.iter().find(|node| node["block"].get("Table").is_some()).expect("table block");
+    let table = &table["block"]["Table"];
+    let mut widths = Vec::new();
+    for band in ["head", "body", "foot"] {
+        let Some(rows) = table.get(band).and_then(Value::as_array)
+        else {
+            continue;
+        };
+        for row in rows {
+            let width = row["cells"]
+                .as_array()
+                .expect("cells")
+                .iter()
+                .map(|cell| cell["colspan"].as_u64().expect("colspan"))
+                .sum::<u64>();
+            widths.push(width);
+        }
+    }
+    widths
+}
+
+#[test]
+fn table_row_and_column_edits_keep_the_grid_consistent() {
+    let workspace = Workspace::new("grid");
+    let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");
+    let handle = handle_of(&opened);
+
+    let inserted = edit(
+        handle,
+        &json!({
+            "operations": [
+                { "type": "table.insertRow", "table": 0, "row": 1, "cells": ["beta", "2"] },
+                { "type": "table.insertColumn", "table": 0, "column": 2, "cells": ["note", "v1", "v2"] },
+            ],
+        }),
+    )
+    .expect("insert row and column");
+    assert_eq!(inserted["document"]["tables"][0]["rows"], json!(3));
+    assert_eq!(inserted["document"]["tables"][0]["columns"], json!(3));
+    assert_eq!(revision_of(&inserted), 2);
+
+    let project = workspace.path("grid.oword");
+    save(handle, &project, false).expect("save project");
+    let envelope: Value = serde_json::from_slice(&fs::read(&project).expect("read project")).expect("parse project");
+    assert_eq!(table_grid(&envelope), vec![3, 3, 3], "every row must span three grid columns");
+
+    let txt = workspace.path("grid.txt");
+    export(handle, "txt", &txt, false).expect("export txt");
+    let text = fs::read_to_string(&txt).expect("read txt");
+    assert!(text.contains("Name\tValue\tnote"), "header row: {text}");
+    assert!(text.contains("beta\t2\tv1"), "inserted row: {text}");
+    assert!(text.contains("alpha\t1\tv2"), "body row: {text}");
+
+    let deleted = edit(
+        handle,
+        &json!({
+            "operations": [
+                { "type": "table.deleteRow", "table": 0, "row": 1 },
+                { "type": "table.deleteColumn", "table": 0, "column": 2 },
+            ],
+        }),
+    )
+    .expect("delete row and column");
+    assert_eq!(deleted["document"]["tables"][0]["rows"], json!(2));
+    assert_eq!(deleted["document"]["tables"][0]["columns"], json!(2));
+    assert_eq!(revision_of(&deleted), 4);
+
+    let before = summary(handle).expect("summary");
+    for operation in [
+        json!({ "type": "table.insertRow", "table": 0, "row": 9 }),
+        json!({ "type": "table.deleteRow", "table": 0, "row": 9 }),
+        json!({ "type": "table.insertColumn", "table": 0, "column": 9 }),
+        json!({ "type": "table.deleteColumn", "table": 0, "column": 9 }),
+        json!({ "type": "table.insertRow", "table": 0, "row": 1, "cells": ["only-one"] }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid table edit must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+
+    let failed = edit(
+        handle,
+        &json!({
+            "operations": [
+                { "type": "table.insertRow", "table": 0, "row": 1, "cells": ["x", "y"] },
+                { "type": "table.deleteRow", "table": 0, "row": 99 },
+            ],
+        }),
+    )
+    .expect_err("a batch with one invalid row must fail as a whole");
+    assert_eq!(failed.code, "session/argument-invalid");
+    assert_eq!(summary(handle).expect("summary"), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn table_edits_reject_an_empty_grid() {
+    let created = create(&json!({ "title": "Single row" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "table.append", "rows": [["only"]] }] })).expect("append table");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    let error = edit(handle, &json!({ "operations": [{ "type": "table.deleteRow", "table": 0, "row": 0 }] }))
+        .expect_err("the last row cannot be deleted");
+    assert_eq!(error.code, "session/argument-invalid");
+    let error = edit(handle, &json!({ "operations": [{ "type": "table.deleteColumn", "table": 0, "column": 0 }] }))
+        .expect_err("the last column cannot be deleted");
+    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    let column = edit(handle, &json!({ "operations": [{ "type": "table.insertColumn", "table": 0, "column": 1 }] }))
+        .expect("insert an empty column");
+    assert_eq!(column["document"]["tables"][0]["columns"], json!(2));
+    assert_eq!(revision_of(&column), before + 1);
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn paragraph_update_replaces_text_and_keeps_the_paragraph() {
+    let created = create(&json!({ "title": "Update" })).expect("create");
+    let handle = handle_of(&created);
+    edit(
+        handle,
+        &json!({
+            "operations": [
+                { "type": "heading.append", "level": 1, "text": "Alpha" },
+                { "type": "paragraph.append", "text": "old text" },
+            ],
+        }),
+    )
+    .expect("seed document");
+
+    let hits = find(handle, "old text", None).expect("find");
+    let id = hits.as_array().expect("hits")[0]["blockId"].as_str().expect("block id").to_string();
+    let updated = edit(handle, &json!({ "operations": [{ "type": "paragraph.update", "id": id, "text": "new text" }] }))
+        .expect("update by id");
+    assert_eq!(updated["document"]["paragraphs"].as_array().unwrap().len(), 1);
+    assert_eq!(updated["document"]["paragraphs"][0]["text"], json!("new text"));
+    assert_eq!(updated["document"]["paragraphs"][0]["style"], Value::Null);
+    assert_eq!(updated["document"]["paragraphs"][0]["sectionIndex"], json!(0));
+    assert_eq!(revision_of(&updated), 3);
+
+    // Flat order is the section at index 0 and its paragraph at index 1.
+    let by_index = edit(handle, &json!({ "operations": [{ "type": "paragraph.update", "index": 1, "text": "third" }] }))
+        .expect("update by index");
+    assert_eq!(by_index["document"]["paragraphs"][0]["text"], json!("third"));
+    assert_eq!(revision_of(&by_index), 4);
+
+    let section_id = by_index["document"]["sections"][0]["id"].as_str().expect("section id").to_string();
+    let before = revision_of(&summary(handle).expect("summary"));
+    for operation in [
+        json!({ "type": "paragraph.update", "id": section_id, "text": "not a paragraph" }),
+        json!({ "type": "paragraph.update", "text": "missing target" }),
+        json!({ "type": "paragraph.update", "index": 99, "text": "outside" }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid target must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    let error = edit(handle, &json!({ "operations": [{ "type": "paragraph.update", "id": "node-999999", "text": "x" }] }))
+        .expect_err("unknown block id must fail");
+    assert_eq!(error.code, "object/not-found");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn block_move_keeps_section_subtrees_and_rejects_cycles() {
+    let created = create(&json!({ "title": "Move" })).expect("create");
+    let handle = handle_of(&created);
+    edit(
+        handle,
+        &json!({
+            "operations": [
+                { "type": "heading.append", "level": 1, "text": "Alpha" },
+                { "type": "paragraph.append", "text": "one" },
+                { "type": "heading.append", "level": 1, "text": "Beta" },
+                { "type": "paragraph.append", "text": "two" },
+            ],
+        }),
+    )
+    .expect("seed sections");
+    let seeded = summary(handle).expect("summary");
+    let alpha = seeded["sections"][0]["id"].as_str().expect("alpha id").to_string();
+    let beta = seeded["sections"][1]["id"].as_str().expect("beta id").to_string();
+
+    let before = revision_of(&seeded);
+    let error = edit(handle, &json!({ "operations": [{ "type": "block.move", "id": alpha, "index": 1 }] }))
+        .expect_err("a section cannot move into its own subtree");
+    assert_eq!(error.code, "session/argument-invalid");
+    let error = edit(handle, &json!({ "operations": [{ "type": "block.move", "id": "node-999999", "index": 0 }] }))
+        .expect_err("unknown block id must fail");
+    assert_eq!(error.code, "object/not-found");
+    let error = edit(handle, &json!({ "operations": [{ "type": "block.move", "id": alpha, "index": 99 }] }))
+        .expect_err("out-of-range position must fail");
+    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    let moved = edit(handle, &json!({ "operations": [{ "type": "block.move", "id": beta, "index": 0 }] }))
+        .expect("move section with subtree");
+    assert_eq!(moved["document"]["sections"][0]["title"], json!("Beta"));
+    assert_eq!(moved["document"]["sections"][1]["title"], json!("Alpha"));
+    assert_eq!(summary_text(&moved["document"]), "two\none");
+    assert_eq!(moved["document"]["paragraphs"][0]["sectionIndex"], json!(0));
+    assert_eq!(moved["document"]["paragraphs"][1]["sectionIndex"], json!(1));
+    assert_eq!(revision_of(&moved), before + 1);
+
+    let hits = find(handle, "one", None).expect("find");
+    let one = hits.as_array().expect("hits")[0]["blockId"].as_str().expect("block id").to_string();
+    let promoted = edit(handle, &json!({ "operations": [{ "type": "block.move", "id": one, "index": 0 }] }))
+        .expect("promote a paragraph to the top level");
+    assert_eq!(summary_text(&promoted["document"]), "one\ntwo");
+    assert_eq!(promoted["document"]["paragraphs"][0]["sectionIndex"], json!(-1));
+    assert_eq!(promoted["document"]["sections"][0]["title"], json!("Beta"));
+    assert_eq!(revision_of(&promoted), before + 2);
+
+    close(handle).expect("close");
+}

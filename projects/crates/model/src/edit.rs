@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use document_ir::{Block, DocumentGraph, Inline, NodeId, TableRow};
+use document_ir::{Block, DocumentGraph, Inline, NodeId, TableCell, TableRow};
 use serde_json::{Value, json};
 
 use crate::{ServiceError, search};
@@ -21,6 +21,18 @@ enum Operation {
     RemoveBlock { id: NodeId },
     InsertParagraph { index: usize, text: String },
     SetCell { table: usize, row: usize, column: usize, text: String },
+    InsertRow { table: usize, row: usize, cells: Option<Vec<String>> },
+    DeleteRow { table: usize, row: usize },
+    InsertColumn { table: usize, column: usize, cells: Option<Vec<String>> },
+    DeleteColumn { table: usize, column: usize },
+    UpdateParagraph { target: Target, text: String },
+    MoveBlock { id: NodeId, index: usize },
+}
+
+#[derive(Clone)]
+enum Target {
+    Id(NodeId),
+    Index(usize),
 }
 
 /// Parses, validates and applies one edit request, returning one report per
@@ -125,7 +137,57 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             column: required_index(operation, "column")?,
             text: required_text(operation, "text")?,
         }),
+        "table.insertRow" => Ok(Operation::InsertRow {
+            table: required_index(operation, "table")?,
+            row: required_index(operation, "row")?,
+            cells: optional_cells(operation)?,
+        }),
+        "table.deleteRow" => {
+            Ok(Operation::DeleteRow { table: required_index(operation, "table")?, row: required_index(operation, "row")? })
+        }
+        "table.insertColumn" => Ok(Operation::InsertColumn {
+            table: required_index(operation, "table")?,
+            column: required_index(operation, "column")?,
+            cells: optional_cells(operation)?,
+        }),
+        "table.deleteColumn" => Ok(Operation::DeleteColumn {
+            table: required_index(operation, "table")?,
+            column: required_index(operation, "column")?,
+        }),
+        "paragraph.update" => {
+            Ok(Operation::UpdateParagraph { target: paragraph_target(operation)?, text: required_text(operation, "text")? })
+        }
+        "block.move" => Ok(Operation::MoveBlock { id: parse_block_id(operation)?, index: required_index(operation, "index")? }),
         other => Err(ServiceError::new("object/unsupported", format!("edit operation `{other}` is not supported"))),
+    }
+}
+
+fn parse_block_id(operation: &Value) -> Result<NodeId, ServiceError> {
+    let raw = required_text(operation, "id")?;
+    search::parse_block_id(&raw).ok_or_else(|| crate::invalid("`id` must be a block id such as `node-3` or `section-1`"))
+}
+
+fn paragraph_target(operation: &Value) -> Result<Target, ServiceError> {
+    if let Some(raw) = optional_text(operation, "id")? {
+        return search::parse_block_id(&raw)
+            .map(Target::Id)
+            .ok_or_else(|| crate::invalid("`id` must be a block id such as `node-3` or `section-1`"));
+    }
+    match optional_index(operation, "index")? {
+        Some(index) => Ok(Target::Index(index)),
+        None => Err(crate::invalid("`paragraph.update` needs `id` or `index`")),
+    }
+}
+
+fn optional_cells(operation: &Value) -> Result<Option<Vec<String>>, ServiceError> {
+    match operation.get("cells") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|cell| cell.as_str().map(str::to_string).ok_or_else(|| crate::invalid("each table cell must be a string")))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some),
+        Some(_) => Err(crate::invalid("`cells` must be an array of strings")),
     }
 }
 
@@ -221,6 +283,37 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             set_cell(graph, table, row, column, text)?;
             graph.bump_revision();
             Ok(json!({ "type": "table.setCell", "table": table, "row": row, "column": column }))
+        }
+        Operation::InsertRow { table, row, cells } => {
+            insert_row(graph, table, row, cells)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.insertRow", "table": table, "row": row }))
+        }
+        Operation::DeleteRow { table, row } => {
+            delete_row(graph, table, row)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.deleteRow", "table": table, "row": row }))
+        }
+        Operation::InsertColumn { table, column, cells } => {
+            insert_column(graph, table, column, cells)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.insertColumn", "table": table, "column": column }))
+        }
+        Operation::DeleteColumn { table, column } => {
+            delete_column(graph, table, column)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.deleteColumn", "table": table, "column": column }))
+        }
+        Operation::UpdateParagraph { target, text } => {
+            let label = update_paragraph(graph, target, text)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "paragraph.update", "id": label }))
+        }
+        Operation::MoveBlock { id, index } => {
+            let label = graph.blocks.iter().find(|node| node.id == id).map(|node| search::block_id(&node.block, id));
+            move_block(graph, id, index)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "block.move", "id": label, "index": index }))
         }
     }
 }
@@ -443,14 +536,7 @@ fn insert_into_container(graph: &mut DocumentGraph, target: NodeId, new_id: Node
 }
 
 fn set_cell(graph: &mut DocumentGraph, table: usize, row: usize, column: usize, text: String) -> Result<(), ServiceError> {
-    let tables = search::flat_order(graph)
-        .into_iter()
-        .filter(|id| graph.blocks.iter().any(|node| node.id == *id && matches!(node.block, Block::Table { .. })))
-        .collect::<Vec<_>>();
-    let Some(table_id) = tables.get(table).copied()
-    else {
-        return Err(crate::invalid(format!("`table` {table} is outside the document's {} tables", tables.len())));
-    };
+    let table_id = table_id_at(graph, table)?;
 
     let old_children = {
         let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
@@ -502,4 +588,314 @@ fn row_at<'a>(
         return body.get_mut(row - head_len);
     }
     foot.get_mut(row - head_len - body_len)
+}
+
+fn table_id_at(graph: &DocumentGraph, table: usize) -> Result<NodeId, ServiceError> {
+    let tables = search::flat_order(graph)
+        .into_iter()
+        .filter(|id| graph.blocks.iter().any(|node| node.id == *id && matches!(node.block, Block::Table { .. })))
+        .collect::<Vec<_>>();
+    tables
+        .get(table)
+        .copied()
+        .ok_or_else(|| crate::invalid(format!("`table` {table} is outside the document's {} tables", tables.len())))
+}
+
+fn table_shape(graph: &DocumentGraph, id: NodeId) -> (usize, usize) {
+    let Some(node) = graph.blocks.iter().find(|node| node.id == id)
+    else {
+        return (0, 0);
+    };
+    let Block::Table { head, body, foot, .. } = &node.block
+    else {
+        return (0, 0);
+    };
+    let rows = head.len() + body.len() + foot.len();
+    let columns = head.iter().chain(body.iter()).chain(foot.iter()).map(row_width).max().unwrap_or(0);
+    (rows, columns)
+}
+
+fn row_width(row: &TableRow) -> usize {
+    row.cells.iter().fold(0usize, |total, cell| total.saturating_add(cell.colspan.max(1) as usize))
+}
+
+fn new_cell(graph: &mut DocumentGraph, text: String) -> TableCell {
+    let child = graph.push_block(Block::Paragraph { content: vec![Inline::Text { text }] });
+    TableCell { children: vec![child], colspan: 1, rowspan: 1 }
+}
+
+fn insert_row(graph: &mut DocumentGraph, table: usize, row: usize, cells: Option<Vec<String>>) -> Result<(), ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let (total_rows, columns) = table_shape(graph, table_id);
+    if columns == 0 {
+        return Err(crate::invalid("`table.insertRow` needs a table with at least one column"));
+    }
+    if row > total_rows {
+        return Err(crate::invalid(format!("`row` {row} is outside the table's {total_rows} rows")));
+    }
+    let texts = match cells {
+        Some(values) if values.len() != columns => {
+            return Err(crate::invalid(format!("`cells` needs {columns} entries for the table grid but has {}", values.len())));
+        }
+        Some(values) => values,
+        None => vec![String::new(); columns],
+    };
+    let new_row = TableRow { cells: texts.into_iter().map(|text| new_cell(graph, text)).collect() };
+
+    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+    let Block::Table { head, body, foot, .. } = &mut node.block
+    else {
+        unreachable!("the id was filtered to a table block");
+    };
+    let head_len = head.len();
+    let body_len = body.len();
+    if row < head_len {
+        head.insert(row, new_row);
+    }
+    else if row < head_len + body_len {
+        body.insert(row - head_len, new_row);
+    }
+    else if row < head_len + body_len + foot.len() {
+        foot.insert(row - head_len - body_len, new_row);
+    }
+    else if !foot.is_empty() {
+        foot.push(new_row);
+    }
+    else {
+        body.push(new_row);
+    }
+    Ok(())
+}
+
+fn delete_row(graph: &mut DocumentGraph, table: usize, row: usize) -> Result<(), ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let (total_rows, _) = table_shape(graph, table_id);
+    if row >= total_rows {
+        return Err(crate::invalid(format!("`row` {row} is outside the table's {total_rows} rows")));
+    }
+    if total_rows == 1 {
+        return Err(crate::invalid("cannot delete the table's last row"));
+    }
+    let removed = {
+        let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+        let Block::Table { head, body, foot, .. } = &mut node.block
+        else {
+            unreachable!("the id was filtered to a table block");
+        };
+        let removed = if row < head.len() {
+            head.remove(row)
+        }
+        else if row < head.len() + body.len() {
+            body.remove(row - head.len())
+        }
+        else {
+            foot.remove(row - head.len() - body.len())
+        };
+        removed.cells.into_iter().flat_map(|cell| cell.children).collect::<Vec<_>>()
+    };
+    for child in removed {
+        sweep(graph, child);
+    }
+    Ok(())
+}
+
+/// Grid index at which a new cell starts, given a target grid column.
+fn column_index(row: &TableRow, column: usize) -> usize {
+    let mut start = 0usize;
+    for (index, cell) in row.cells.iter().enumerate() {
+        let span = cell.colspan.max(1) as usize;
+        if column < start + span {
+            return index;
+        }
+        start += span;
+    }
+    row.cells.len()
+}
+
+fn insert_column(
+    graph: &mut DocumentGraph,
+    table: usize,
+    column: usize,
+    cells: Option<Vec<String>>,
+) -> Result<(), ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let (rows, columns) = table_shape(graph, table_id);
+    if columns == 0 {
+        return Err(crate::invalid("`table.insertColumn` needs a table with at least one column"));
+    }
+    if column > columns {
+        return Err(crate::invalid(format!("`column` {column} is outside the table's {columns} grid columns")));
+    }
+    let texts = match cells {
+        Some(values) if values.len() != rows => {
+            return Err(crate::invalid(format!(
+                "`cells` needs {rows} entries for the table's {rows} rows but has {}",
+                values.len()
+            )));
+        }
+        Some(values) => values,
+        None => vec![String::new(); rows],
+    };
+    let mut new_cells = texts.into_iter().map(|text| new_cell(graph, text)).collect::<std::collections::VecDeque<_>>();
+
+    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+    let Block::Table { head, body, foot, .. } = &mut node.block
+    else {
+        unreachable!("the id was filtered to a table block");
+    };
+    for target in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()) {
+        let index = column_index(target, column);
+        let cell = new_cells.pop_front().expect("one new cell was built per row");
+        target.cells.insert(index, cell);
+    }
+    Ok(())
+}
+
+fn delete_column(graph: &mut DocumentGraph, table: usize, column: usize) -> Result<(), ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let (_, columns) = table_shape(graph, table_id);
+    if column >= columns {
+        return Err(crate::invalid(format!("`column` {column} is outside the table's {columns} grid columns")));
+    }
+    if columns == 1 {
+        return Err(crate::invalid("cannot delete the table's last column"));
+    }
+    let mut removed = Vec::new();
+    {
+        let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+        let Block::Table { head, body, foot, .. } = &mut node.block
+        else {
+            unreachable!("the id was filtered to a table block");
+        };
+        for target in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()) {
+            let mut start = 0usize;
+            let mut found = None;
+            for (index, cell) in target.cells.iter().enumerate() {
+                let span = cell.colspan.max(1) as usize;
+                if column >= start && column < start + span {
+                    found = Some(index);
+                    break;
+                }
+                start += span;
+            }
+            let Some(index) = found
+            else {
+                continue;
+            };
+            if target.cells[index].colspan > 1 {
+                target.cells[index].colspan -= 1;
+            }
+            else {
+                let cell = target.cells.remove(index);
+                removed.extend(cell.children);
+            }
+        }
+    }
+    for child in removed {
+        sweep(graph, child);
+    }
+    Ok(())
+}
+
+fn update_paragraph(graph: &mut DocumentGraph, target: Target, text: String) -> Result<String, ServiceError> {
+    let id = match target {
+        Target::Id(id) => {
+            if !graph.blocks.iter().any(|node| node.id == id) {
+                return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+            }
+            id
+        }
+        Target::Index(index) => {
+            let order = search::flat_order(graph);
+            *order
+                .get(index)
+                .ok_or_else(|| crate::invalid(format!("`index` {index} is outside the document's {} blocks", order.len())))?
+        }
+    };
+    let label =
+        graph.blocks.iter().find(|node| node.id == id).map(|node| search::block_id(&node.block, id)).unwrap_or_default();
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+    match &mut node.block {
+        Block::Paragraph { content } => *content = vec![Inline::Text { text }],
+        _ => return Err(crate::invalid("`paragraph.update` needs a paragraph; the addressed block is not one")),
+    }
+    Ok(label)
+}
+
+fn move_block(graph: &mut DocumentGraph, id: NodeId, index: usize) -> Result<(), ServiceError> {
+    let order = search::flat_order(graph);
+    let Some(position) = order.iter().position(|node| *node == id)
+    else {
+        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+    };
+    if index > order.len() {
+        return Err(crate::invalid(format!("`index` {index} is outside the document's {} block positions", order.len())));
+    }
+    let mut subtree = HashSet::new();
+    collect_subtree(graph, id, &mut subtree);
+    if index < order.len() {
+        let target = order[index];
+        if target != id && subtree.contains(&target) {
+            return Err(crate::invalid("a block cannot move inside its own subtree"));
+        }
+    }
+    if index == position {
+        return Ok(());
+    }
+
+    detach_block(graph, id);
+    let remaining = order.into_iter().filter(|node| !subtree.contains(node)).collect::<Vec<_>>();
+    if index >= remaining.len() {
+        append_root(graph, id);
+    }
+    else {
+        let target = remaining[index];
+        if !insert_into_container(graph, target, id) {
+            reorder_root_before(graph, target, id);
+        }
+    }
+    Ok(())
+}
+
+/// Removes one node from every container list, without deleting the node.
+fn detach_block(graph: &mut DocumentGraph, id: NodeId) {
+    for node in &mut graph.blocks {
+        match &mut node.block {
+            Block::Section { children, .. } | Block::Quote { children } => children.retain(|child| *child != id),
+            Block::List { items, .. } => {
+                for item in items {
+                    item.children.retain(|child| *child != id);
+                }
+            }
+            Block::Table { head, body, foot, .. } => {
+                for row in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()) {
+                    for cell in &mut row.cells {
+                        cell.children.retain(|child| *child != id);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Moves one block node to the end of the top-level block order.
+fn append_root(graph: &mut DocumentGraph, id: NodeId) {
+    let Some(position) = graph.blocks.iter().position(|node| node.id == id)
+    else {
+        return;
+    };
+    let node = graph.blocks.remove(position);
+    graph.blocks.push(node);
+}
+
+/// Moves one block node directly in front of a top-level target.
+fn reorder_root_before(graph: &mut DocumentGraph, target: NodeId, id: NodeId) {
+    let Some(position) = graph.blocks.iter().position(|node| node.id == id)
+    else {
+        return;
+    };
+    let node = graph.blocks.remove(position);
+    let target_position = graph.blocks.iter().position(|node| node.id == target).unwrap_or(graph.blocks.len());
+    graph.blocks.insert(target_position, node);
 }

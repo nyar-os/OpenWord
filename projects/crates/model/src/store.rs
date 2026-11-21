@@ -89,11 +89,6 @@ pub(crate) fn with<R>(handle: u64, work: impl FnOnce(&Entry) -> R) -> Option<R> 
     STORE.with(handle, work)
 }
 
-/// Runs `work` against one mutable entry.
-pub(crate) fn with_mut<R>(handle: u64, work: impl FnOnce(&mut Entry) -> R) -> Option<R> {
-    STORE.with_mut(handle, |record| work(record.state_mut()))
-}
-
 /// Runs `work` against one entry with undo and redo access.
 pub(crate) fn with_history<R>(handle: u64, work: impl FnOnce(&mut document_session::Session<'_, Entry>) -> R) -> Option<R> {
     STORE.with_session(handle, work)

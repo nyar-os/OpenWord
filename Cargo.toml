@@ -16,7 +16,12 @@ repository = "https://github.com/nyar-os/OpenWord"
 # dependencies pin the full 40-character revision so local builds and CI resolve
 # the same commit.
 wae = { git = "https://github.com/doki-land/wae-framework.git", rev = "f92f818fde7174154d77a87b55a5e44b367034c9", default-features = false, features = ["webview"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Document engine primitives. The revision is pinned so local builds and CI
+# resolve the same semantic IR and format adapters.
+document-ir = { git = "https://github.com/oovm/rust-boost", rev = "71db8fa50f49e3693640cbd19e64ad9c797e5932" }
+document-formats = { git = "https://github.com/oovm/rust-boost", rev = "71db8fa50f49e3693640cbd19e64ad9c797e5932", default-features = false, features = ["docx", "pdf", "html", "markdown"] }
 
 [profile.release]
 lto = true

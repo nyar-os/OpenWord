@@ -1,0 +1,15 @@
+[package]
+name = "open-word-document"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Document model and operations for OpenWord"
+
+[dependencies]
+document-formats = { workspace = true }
+document-ir = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

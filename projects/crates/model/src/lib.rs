@@ -10,6 +10,7 @@
 mod edit;
 mod files;
 mod inspect;
+mod rtf;
 mod search;
 mod store;
 mod summary;
@@ -75,7 +76,7 @@ pub fn capabilities() -> Value {
         ("dotx", "unsupported", "unsupported", "unsupported"),
         ("dotm", "unsupported", "unsupported", "unsupported"),
         ("doc", "unsupported", "unsupported", "unsupported"),
-        ("rtf", "unsupported", "unsupported", "unsupported"),
+        ("rtf", "partial", "supported", "unsupported"),
         ("odt", "unsupported", "unsupported", "unsupported"),
         ("txt", "supported", "supported", "supported"),
         ("md", "supported", "supported", "supported"),
@@ -85,7 +86,11 @@ pub fn capabilities() -> Value {
 
     let mut formats = Map::new();
     for (format, import, edit_level, export) in matrix {
-        formats.insert((*format).to_string(), json!({ "import": import, "edit": edit_level, "export": export }));
+        let mut entry = json!({ "import": import, "edit": edit_level, "export": export });
+        if format == "rtf" {
+            entry["lossCodes"] = json!(rtf::LOSS_CODES);
+        }
+        formats.insert((*format).to_string(), entry);
     }
 
     let mut checks = Map::new();

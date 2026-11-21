@@ -26,6 +26,8 @@ pub(crate) enum Source {
     Project,
     /// A Word OPC package whose bytes stay available for structural checks.
     Docx { label: String, bytes: Vec<u8> },
+    /// An RTF stream, labelled with the path it was read from.
+    Rtf { label: String },
     /// Any other imported format, labelled with its canonical name.
     Other(&'static str),
 }
@@ -42,11 +44,13 @@ impl Entry {
     }
 }
 
-/// Registers one entry and returns the `{ handle, document }` response.
+/// Registers one entry and returns the `{ handle, document, complete, losses }` response.
 pub(crate) fn register(entry: Entry) -> Value {
-    let summary = summary::project(&entry.graph);
+    let document = summary::project(&entry.graph);
+    let complete = entry.graph.coverage.complete;
+    let losses = summary::loss_values(&entry.graph);
     let handle = insert(entry);
-    json!({ "handle": handle, "document": summary })
+    json!({ "handle": handle, "document": document, "complete": complete, "losses": losses })
 }
 
 /// Allocates one process-unique document identity.

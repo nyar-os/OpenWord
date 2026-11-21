@@ -67,6 +67,16 @@ pub(crate) fn report(graph: &DocumentGraph, source: &Source, checks: Option<&[St
             .into_value(),
         );
     }
+    else if let Source::Rtf { label } = source {
+        issues.push(
+            Issue::warning(
+                "source/partial-import",
+                format!("RTF import from {label} is a text projection: tables, lists, pictures and fields can be partial"),
+                graph.revision,
+            )
+            .into_value(),
+        );
+    }
 
     let passed = !issues.iter().any(|issue| issue["severity"] == json!("error"));
     json!({

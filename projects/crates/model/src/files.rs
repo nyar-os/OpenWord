@@ -87,6 +87,11 @@ pub(crate) fn load(path: &Path) -> Result<Entry, ServiceError> {
             graph.id = store::next_document_id();
             Ok(Entry::new(graph, Source::Other("txt")))
         }
+        "rtf" => {
+            let bytes = read(path)?;
+            let graph = crate::rtf::import_rtf_bytes(&label, &bytes, store::next_document_id())?;
+            Ok(Entry::new(graph, Source::Rtf { label }))
+        }
         "pdf" => {
             let bytes = read(path)?;
             let mut graph = import::pdf::import_pdf_bytes(&label, &bytes).map_err(format_failure)?;
@@ -124,21 +129,11 @@ pub(crate) fn export_graph(graph: &DocumentGraph, format: &str, target: &Path, o
 
     write_atomically(target, &bytes, overwrite)?;
 
-    let losses = graph
-        .coverage
-        .loss
-        .iter()
-        .map(|marker| {
-            let severity = if matches!(marker.status, document_ir::SemanticStatus::Unsupported) { "error" } else { "warning" };
-            json!({ "code": marker.code, "severity": severity, "message": marker.message })
-        })
-        .collect::<Vec<_>>();
-
     Ok(json!({
         "revision": graph.revision,
         "format": format,
         "target": target.display().to_string(),
-        "losses": losses,
+        "losses": summary::loss_values(graph),
         "editable": editable,
     }))
 }

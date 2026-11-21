@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 
-use document_ir::{Block, DocumentGraph, Inline, NodeId, TableRow};
+use document_ir::{Block, DocumentGraph, Inline, NodeId, SemanticStatus, TableRow};
 use serde_json::{Value, json};
 
 /// Projects one graph into the authoring summary shape.
@@ -133,6 +133,20 @@ impl<'a> Walker<'a> {
 
 fn row_columns(row: &TableRow) -> u32 {
     row.cells.iter().fold(0u32, |total, cell| total.saturating_add(cell.colspan))
+}
+
+/// Projects the recorded import/export loss markers into the report shape every
+/// surface reads.
+pub(crate) fn loss_values(graph: &DocumentGraph) -> Vec<Value> {
+    graph
+        .coverage
+        .loss
+        .iter()
+        .map(|marker| {
+            let severity = if matches!(marker.status, SemanticStatus::Unsupported) { "error" } else { "warning" };
+            json!({ "code": marker.code, "severity": severity, "message": marker.message })
+        })
+        .collect()
 }
 
 /// Flattens inline content into the text every surface reads.

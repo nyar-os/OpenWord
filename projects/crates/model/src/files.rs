@@ -116,12 +116,16 @@ pub(crate) fn save_graph(graph: &DocumentGraph, path: &Path, overwrite: bool) ->
 
 /// Exports one target and reports what the route kept.
 pub(crate) fn export_graph(graph: &DocumentGraph, format: &str, target: &Path, overwrite: bool) -> Result<Value, ServiceError> {
-    let (bytes, editable) = match format {
-        "docx" => (export::docx::export_docx_bytes(graph).map_err(format_failure)?, true),
-        "md" => (export::markdown::export_markdown(graph).map_err(format_failure)?.into_bytes(), true),
-        "html" => (export::html::export_html(graph).map_err(format_failure)?.into_bytes(), true),
-        "pdf" => (export::pdf::export_pdf_bytes(graph).map_err(format_failure)?, false),
-        "txt" => (text_projection(graph).into_bytes(), true),
+    let (bytes, editable, route_losses) = match format {
+        "docx" => (export::docx::export_docx_bytes(graph).map_err(format_failure)?, true, Vec::new()),
+        "md" => (export::markdown::export_markdown(graph).map_err(format_failure)?.into_bytes(), true, Vec::new()),
+        "html" => (export::html::export_html(graph).map_err(format_failure)?.into_bytes(), true, Vec::new()),
+        "pdf" => (export::pdf::export_pdf_bytes(graph).map_err(format_failure)?, false, Vec::new()),
+        "txt" => (text_projection(graph).into_bytes(), true, Vec::new()),
+        "rtf" => {
+            let (text, losses) = crate::rtf::export_rtf(graph);
+            (text.into_bytes(), true, losses)
+        }
         other => {
             return Err(ServiceError::new("format/unsupported", format!("`{other}` has no export route in this build")));
         }
@@ -129,11 +133,14 @@ pub(crate) fn export_graph(graph: &DocumentGraph, format: &str, target: &Path, o
 
     write_atomically(target, &bytes, overwrite)?;
 
+    let mut losses = summary::loss_values(graph);
+    losses.extend(route_losses);
+
     Ok(json!({
         "revision": graph.revision,
         "format": format,
         "target": target.display().to_string(),
-        "losses": summary::loss_values(graph),
+        "losses": losses,
         "editable": editable,
     }))
 }

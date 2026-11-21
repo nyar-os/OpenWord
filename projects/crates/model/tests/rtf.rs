@@ -6,7 +6,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use open_word_document::{capabilities, close, open, save};
+use open_word_document::{capabilities, close, create, edit, export, open, save};
 use serde_json::{Value, json};
 
 static COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -88,9 +88,19 @@ fn capabilities_declare_partial_rtf_import_with_loss_codes() {
     let matrix = capabilities();
     assert_eq!(matrix["formats"]["rtf"]["import"], json!("partial"));
     assert_eq!(matrix["formats"]["rtf"]["edit"], json!("supported"));
-    assert_eq!(matrix["formats"]["rtf"]["export"], json!("unsupported"));
+    assert_eq!(matrix["formats"]["rtf"]["export"], json!("partial"));
+    assert_eq!(matrix["exportTargets"]["rtf"], json!("partial"));
     let codes = matrix["formats"]["rtf"]["lossCodes"].as_array().expect("lossCodes");
-    for expected in ["import.rtf.table", "import.rtf.list", "import.rtf.image", "import.rtf.field", "import.rtf.color"] {
+    for expected in [
+        "import.rtf.table",
+        "import.rtf.list",
+        "import.rtf.image",
+        "import.rtf.field",
+        "import.rtf.color",
+        "export.rtf.table",
+        "export.rtf.image",
+        "export.rtf.link",
+    ] {
         assert!(codes.contains(&json!(expected)), "missing {expected}: {codes:?}");
     }
 }
@@ -151,6 +161,63 @@ fn degrades_tables_lists_pictures_fields_and_colors_with_losses() {
         assert!(codes.contains(&expected.to_string()), "missing {expected}: {codes:?}");
     }
     close(handle).expect("close");
+}
+
+#[test]
+fn exports_rtf_that_the_reader_round_trips() {
+    let workspace = Workspace::new("export");
+    let markdown = workspace.path("report.md");
+    fs::write(&markdown, "# Title\n\n**Bold** and *italic* text.\n\n| Name | Value |\n| --- | --- |\n| alpha | 1 |\n")
+        .expect("write markdown");
+    let opened = open(&markdown).expect("open markdown");
+    let handle = handle_of(&opened);
+
+    let target = workspace.path("report.rtf");
+    let report = export(handle, "rtf", &target, false).expect("export rtf");
+    assert_eq!(report["format"], json!("rtf"));
+    assert_eq!(report["editable"], json!(true));
+    let codes = loss_codes(&report);
+    assert!(codes.contains(&"export.rtf.table".to_string()), "table degradation must be reported: {codes:?}");
+    assert_exists(&target);
+    assert!(fs::read(&target).expect("read rtf").starts_with(b"{\\rtf1"));
+
+    let reopened = open(&target).expect("read the exported rtf back");
+    assert_eq!(
+        paragraph_texts(&reopened["document"]),
+        vec!["Title".to_string(), "Bold and italic text.".to_string(), "Name\tValue".to_string(), "alpha\t1".to_string()]
+    );
+
+    let project = workspace.path("roundtrip.oword");
+    save(handle_of(&reopened), &project, false).expect("save reopened");
+    let envelope: Value = serde_json::from_slice(&fs::read(&project).expect("read project")).expect("parse project");
+    let mut styles = Vec::new();
+    collect_styles(&envelope["document"]["blocks"], &mut styles);
+    assert!(styles.contains(&"bold".to_string()), "bold must survive: {styles:?}");
+    assert!(styles.contains(&"italic".to_string()), "italic must survive: {styles:?}");
+
+    close(handle).expect("close markdown");
+    close(handle_of(&reopened)).expect("close rtf");
+}
+
+#[test]
+fn exports_non_latin_text_as_unicode_escapes() {
+    let workspace = Workspace::new("unicode");
+    let created = create(&json!({ "title": "Unicode" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "paragraph.append", "text": "你好 world" }] })).expect("append");
+
+    let target = workspace.path("unicode.rtf");
+    export(handle, "rtf", &target, false).expect("export rtf");
+    let bytes = fs::read(&target).expect("read rtf");
+    let text = String::from_utf8(bytes).expect("rtf is ASCII");
+    assert!(text.contains("\\u20320?"), "你 must be a unicode escape: {text}");
+    assert!(text.contains("\\u22909?"), "好 must be a unicode escape: {text}");
+
+    let reopened = open(&target).expect("reopen rtf");
+    assert_eq!(paragraph_texts(&reopened["document"]), vec!["你好 world".to_string()]);
+
+    close(handle).expect("close");
+    close(handle_of(&reopened)).expect("close rtf");
 }
 
 #[test]

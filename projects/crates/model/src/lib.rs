@@ -29,7 +29,7 @@ const INSPECT_CHECKS: &[&str] = &["styles", "fonts", "images", "sections", "tabl
 const RENDER_FORMATS: &[&str] = &["svg", "png", "pdf"];
 
 /// Export targets the writer can produce.
-const EXPORT_TARGETS: &[&str] = &["docx", "dotx", "pdf", "html", "md", "txt"];
+const EXPORT_TARGETS: &[&str] = &["docx", "dotx", "pdf", "html", "md", "txt", "rtf"];
 
 /// Stable failure of one binding operation.
 #[derive(Debug)]
@@ -76,7 +76,7 @@ pub fn capabilities() -> Value {
         ("dotx", "unsupported", "unsupported", "unsupported"),
         ("dotm", "unsupported", "unsupported", "unsupported"),
         ("doc", "unsupported", "unsupported", "unsupported"),
-        ("rtf", "partial", "supported", "unsupported"),
+        ("rtf", "partial", "supported", "partial"),
         ("odt", "unsupported", "unsupported", "unsupported"),
         ("txt", "supported", "supported", "supported"),
         ("md", "supported", "supported", "supported"),
@@ -108,6 +108,7 @@ pub fn capabilities() -> Value {
     for target in EXPORT_TARGETS {
         let level = match *target {
             "docx" | "pdf" | "html" | "md" | "txt" => "supported",
+            "rtf" => "partial",
             _ => "unsupported",
         };
         export_targets.insert((*target).to_string(), json!(level));

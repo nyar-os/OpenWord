@@ -10,9 +10,10 @@
 //! field instruction) contributes no text, and unsupported table and list
 //! structure degrades to paragraphs.
 
-use document_ir::{Block, BreakKind, DocumentGraph, DocumentId, Inline, LossMarker, SemanticStatus};
+use document_ir::{Block, BreakKind, DocumentGraph, DocumentId, Inline, LossMarker, NodeId, SemanticStatus, TableCell};
+use serde_json::{Value, json};
 
-use crate::ServiceError;
+use crate::{ServiceError, search, summary};
 
 const LOSS_TABLE: &str = "import.rtf.table";
 const LOSS_LIST: &str = "import.rtf.list";
@@ -20,9 +21,22 @@ const LOSS_IMAGE: &str = "import.rtf.image";
 const LOSS_FIELD: &str = "import.rtf.field";
 const LOSS_COLOR: &str = "import.rtf.color";
 const LOSS_FONT: &str = "import.rtf.font";
+const LOSS_EXPORT_TABLE: &str = "export.rtf.table";
+const LOSS_EXPORT_IMAGE: &str = "export.rtf.image";
+const LOSS_EXPORT_LINK: &str = "export.rtf.link";
 
-/// Loss codes this reader can report, in declaration order.
-pub(crate) const LOSS_CODES: &[&str] = &[LOSS_TABLE, LOSS_LIST, LOSS_IMAGE, LOSS_FIELD, LOSS_COLOR, LOSS_FONT];
+/// Loss codes this adapter can report, in declaration order.
+pub(crate) const LOSS_CODES: &[&str] = &[
+    LOSS_TABLE,
+    LOSS_LIST,
+    LOSS_IMAGE,
+    LOSS_FIELD,
+    LOSS_COLOR,
+    LOSS_FONT,
+    LOSS_EXPORT_TABLE,
+    LOSS_EXPORT_IMAGE,
+    LOSS_EXPORT_LINK,
+];
 
 /// Losses observed while reading one document.
 #[derive(Default)]
@@ -414,6 +428,212 @@ fn hex_value(byte: u8) -> Option<u8> {
         b'A'..=b'F' => Some(byte - b'A' + 10),
         _ => None,
     }
+}
+
+/// Writes one graph as an RTF 1.0 stream and reports what the projection lost.
+///
+/// Paragraphs, hard breaks and the character styles the reader understands are
+/// written directly. Tables degrade to tab-separated paragraph rows; pictures
+/// are skipped and hyperlink destinations are dropped while their text stays.
+pub(crate) fn export_rtf(graph: &DocumentGraph) -> (String, Vec<Value>) {
+    let mut renderer = Renderer::new();
+    let body = renderer.render(graph);
+    (body, renderer.losses())
+}
+
+struct Renderer {
+    out: String,
+    seen: std::collections::HashSet<NodeId>,
+    table: bool,
+    image: bool,
+    link: bool,
+}
+
+impl Renderer {
+    fn new() -> Self {
+        let out = String::from("{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0\\fnil\\fcharset0 Times New Roman;}}\\uc1 ");
+        Self { out, seen: std::collections::HashSet::new(), table: false, image: false, link: false }
+    }
+
+    fn render(&mut self, graph: &DocumentGraph) -> String {
+        for root in search::roots(graph) {
+            self.block(graph, root);
+        }
+        self.out.push_str("}\n");
+        std::mem::take(&mut self.out)
+    }
+
+    fn losses(&self) -> Vec<Value> {
+        let markers = [
+            (self.table, LOSS_EXPORT_TABLE, "RTF tables are exported as tab-separated paragraph rows"),
+            (self.image, LOSS_EXPORT_IMAGE, "RTF pictures are not exported; image references are skipped"),
+            (self.link, LOSS_EXPORT_LINK, "RTF hyperlink destinations are not exported; link text is kept"),
+        ];
+        markers
+            .into_iter()
+            .filter(|(seen, _, _)| *seen)
+            .map(|(_, code, message)| json!({ "code": code, "severity": "warning", "message": message }))
+            .collect()
+    }
+
+    fn block(&mut self, graph: &DocumentGraph, id: NodeId) {
+        if !self.seen.insert(id) {
+            return;
+        }
+        let Some(node) = graph.blocks.iter().find(|node| node.id == id)
+        else {
+            return;
+        };
+        match &node.block {
+            Block::Section { title, children, .. } => {
+                self.out.push_str("\\pard\\plain\\b ");
+                self.inlines(title);
+                self.out.push_str("\\b0 \\par\n");
+                for child in children {
+                    self.block(graph, *child);
+                }
+            }
+            Block::Paragraph { content } => {
+                self.out.push_str("\\pard\\plain ");
+                self.inlines(content);
+                self.out.push_str("\\par\n");
+            }
+            Block::List { ordered, items, .. } => {
+                for (index, item) in items.iter().enumerate() {
+                    self.out.push_str("\\pard\\plain ");
+                    if *ordered {
+                        self.out.push_str(&format!("{}. ", item.number.unwrap_or(index as u32 + 1)));
+                    }
+                    else {
+                        self.out.push_str("\\u8226? ");
+                    }
+                    self.inlines(&item.content);
+                    self.out.push_str("\\par\n");
+                    for child in &item.children {
+                        self.block(graph, *child);
+                    }
+                }
+            }
+            Block::Table { head, body, foot, .. } => {
+                self.table = true;
+                for row in head.iter().chain(body.iter()).chain(foot.iter()) {
+                    self.out.push_str("\\pard\\plain ");
+                    let cells = row.cells.iter().map(|cell| cell_text(graph, cell)).collect::<Vec<_>>();
+                    self.out.push_str(&cells.join("\\tab "));
+                    self.out.push_str("\\par\n");
+                }
+            }
+            Block::Quote { children } => {
+                for child in children {
+                    self.block(graph, *child);
+                }
+            }
+            Block::Code { content, .. } => self.paragraph(content),
+            Block::Math { formula } => self.paragraph(&formula.source),
+            Block::Diagram { source, .. }
+            | Block::Chart { source, .. }
+            | Block::Engraving { source, .. }
+            | Block::Depiction { source, .. } => self.paragraph(source),
+            Block::RawHtml { html } => self.paragraph(html),
+            Block::Opaque { payload_hint, .. } if !payload_hint.is_empty() => self.paragraph(payload_hint),
+            _ => {}
+        }
+    }
+
+    fn paragraph(&mut self, text: &str) {
+        self.out.push_str("\\pard\\plain ");
+        self.text(text);
+        self.out.push_str("\\par\n");
+    }
+
+    fn inlines(&mut self, inlines: &[Inline]) {
+        for inline in inlines {
+            self.inline(inline);
+        }
+    }
+
+    fn inline(&mut self, inline: &Inline) {
+        match inline {
+            Inline::Text { text } | Inline::InlineCode { text } => self.text(text),
+            Inline::Styled { style, children } => match style_controls(style) {
+                Some((open, close)) => {
+                    self.out.push_str(open);
+                    self.inlines(children);
+                    self.out.push_str(close);
+                }
+                None => self.inlines(children),
+            },
+            Inline::Attributed { children, .. } => self.inlines(children),
+            Inline::Link { display, .. } => {
+                self.link = true;
+                self.inlines(display);
+            }
+            Inline::Image { .. } => self.image = true,
+            Inline::Reference { display, .. } => self.text(display),
+            Inline::Note { label, display } => match display {
+                Some(display) => self.inlines(display),
+                None => self.text(label),
+            },
+            Inline::Citation { key, display } => match display {
+                Some(display) => self.inlines(display),
+                None => self.text(key),
+            },
+            Inline::InlineMath { formula } => self.text(&formula.source),
+            Inline::Break { kind } => match kind {
+                BreakKind::Hard => self.out.push_str("\\line "),
+                BreakKind::Soft => self.out.push(' '),
+            },
+            Inline::RawHtml { .. } => {}
+        }
+    }
+
+    /// Escapes control characters and writes every code point outside Latin-1
+    /// as a `\uN?` escape with its UTF-16 code unit.
+    fn text(&mut self, text: &str) {
+        for character in text.chars() {
+            match character {
+                '\\' => self.out.push_str("\\\\"),
+                '{' => self.out.push_str("\\{"),
+                '}' => self.out.push_str("\\}"),
+                '\n' => self.out.push_str("\\line "),
+                '\r' => {}
+                '\t' => self.out.push_str("\\tab "),
+                value if (value as u32) < 0x80 => self.out.push(value),
+                value if (value as u32) <= 0xFF => self.out.push_str(&format!("\\'{:02x}", value as u32)),
+                value => {
+                    let mut units = [0u16; 2];
+                    for unit in value.encode_utf16(&mut units) {
+                        self.out.push_str(&format!("\\u{}?", *unit as i16 as i32));
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn style_controls(style: &str) -> Option<(&'static str, &'static str)> {
+    match style.to_ascii_lowercase().as_str() {
+        "bold" | "strong" => Some(("\\b ", "\\b0 ")),
+        "italic" | "emph" | "emphasis" => Some(("\\i ", "\\i0 ")),
+        "underline" => Some(("\\ul ", "\\ul0 ")),
+        "strike" | "strikethrough" | "strikeout" => Some(("\\strike ", "\\strike0 ")),
+        "superscript" | "sup" => Some(("\\super ", "\\nosupersub ")),
+        "subscript" | "sub" => Some(("\\sub ", "\\nosupersub ")),
+        _ => None,
+    }
+}
+
+fn cell_text(graph: &DocumentGraph, cell: &TableCell) -> String {
+    cell.children
+        .iter()
+        .filter_map(|id| graph.blocks.iter().find(|node| node.id == *id))
+        .filter_map(|node| match &node.block {
+            Block::Paragraph { content } => Some(summary::flatten(content)),
+            _ => None,
+        })
+        .map(|text| text.replace('\n', " "))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Windows-1252, the RTF default code page for `\'hh` escapes.

@@ -10,6 +10,7 @@
 mod edit;
 mod files;
 mod inspect;
+mod merge;
 mod rtf;
 mod search;
 mod store;
@@ -189,6 +190,72 @@ pub fn edit(handle: u64, request: &Value) -> Result<Value, ServiceError> {
             "document": summary::project(&entry.graph),
             "revision": entry.graph.revision,
             "results": results,
+        }))
+    })
+    .ok_or_else(|| document_not_found(handle))?
+}
+
+/// Undoes `steps` committed mutations (default 1) and returns the new summary.
+///
+/// Asking for more steps than the history holds is rejected with
+/// `session/argument-invalid` before any state changes. Undo history is
+/// process-local: it is never written to a `.oword` container.
+pub fn undo(handle: u64, steps: Option<u32>) -> Result<Value, ServiceError> {
+    let steps = steps.unwrap_or(1) as usize;
+    if steps == 0 {
+        return Err(invalid("`steps` must be a positive integer"));
+    }
+    store::with_mut(handle, |entry| {
+        entry.undo(steps)?;
+        Ok(json!({
+            "document": summary::project(&entry.graph),
+            "revision": entry.graph.revision,
+            "undone": steps,
+            "redoAvailable": entry.can_redo(),
+        }))
+    })
+    .ok_or_else(|| document_not_found(handle))?
+}
+
+/// Replays `steps` undone mutations (default 1) and returns the new summary.
+pub fn redo(handle: u64, steps: Option<u32>) -> Result<Value, ServiceError> {
+    let steps = steps.unwrap_or(1) as usize;
+    if steps == 0 {
+        return Err(invalid("`steps` must be a positive integer"));
+    }
+    store::with_mut(handle, |entry| {
+        entry.redo(steps)?;
+        Ok(json!({
+            "document": summary::project(&entry.graph),
+            "revision": entry.graph.revision,
+            "redone": steps,
+            "undoAvailable": entry.can_undo(),
+        }))
+    })
+    .ok_or_else(|| document_not_found(handle))?
+}
+
+/// Appends every block of another document to one handle.
+///
+/// The donor is opened through the same file routing `open` uses, so `docx`,
+/// `docm`, `md`, `html`, `rtf`, `txt` and `.oword` all work. Merging a document
+/// with the path it came from is allowed. Only `append` is supported.
+pub fn merge(handle: u64, path: &Path, mode: Option<&str>) -> Result<Value, ServiceError> {
+    let mode = mode.unwrap_or("append");
+    if mode != "append" {
+        return Err(ServiceError::new("object/unsupported", format!("merge mode `{mode}` is not supported")));
+    }
+    store::with(handle, |_| ()).ok_or_else(|| document_not_found(handle))?;
+    let donor = files::load(path)?;
+    store::with_mut(handle, |entry| {
+        let before = entry.graph.clone();
+        let outcome = merge::append(&mut entry.graph, &donor.graph);
+        entry.commit_history(before);
+        Ok(json!({
+            "blocksAdded": outcome.blocks_added,
+            "summary": summary::project(&entry.graph),
+            "revision": entry.graph.revision,
+            "losses": summary::loss_values(&entry.graph),
         }))
     })
     .ok_or_else(|| document_not_found(handle))?

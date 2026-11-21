@@ -49,9 +49,10 @@ export type RenderFormat = 'svg' | 'png' | 'pdf';
  * Targets `export()` can write.
  *
  * `.docx` and `.dotx` share one OOXML package writer and differ only in content
- * type and template semantics; `.html` and `.md` are lossy text projections.
+ * type and template semantics; `.html`, `.md` and `.txt` are lossy text
+ * projections.
  */
-export type ExportFormat = 'docx' | 'dotx' | 'pdf' | 'html' | 'md';
+export type ExportFormat = 'docx' | 'dotx' | 'pdf' | 'html' | 'md' | 'txt';
 
 /** What the installed engine can do, per format and per capability. */
 export interface FormatCapability {
@@ -172,7 +173,11 @@ export type EditOperation =
     | { readonly type: 'paragraph.append'; readonly text: string }
     | { readonly type: 'heading.append'; readonly level: number; readonly text: string }
     | { readonly type: 'table.append'; readonly rows: readonly (readonly string[])[] }
-    | { readonly type: 'metadata.set'; readonly title?: string; readonly author?: string };
+    | { readonly type: 'metadata.set'; readonly title?: string; readonly author?: string }
+    | { readonly type: 'document.replaceText'; readonly find: string; readonly replace: string; readonly limit?: number }
+    | { readonly type: 'block.remove'; readonly id: string }
+    | { readonly type: 'paragraph.insert'; readonly index: number; readonly text: string }
+    | { readonly type: 'table.setCell'; readonly table: number; readonly row: number; readonly column: number; readonly text: string };
 
 /** Options of `OpenWord.edit()`. */
 export interface EditOptions {
@@ -185,10 +190,45 @@ export interface EditRequest extends EditOptions {
     readonly operations: readonly EditOperation[];
 }
 
+/** Outcome of one applied edit operation. */
+export interface EditOperationResult {
+    /** Operation that produced this report. */
+    readonly type: string;
+    /** Replaced occurrences of `document.replaceText`. */
+    readonly replaced?: number;
+    /** Blocks physically removed by `block.remove`. */
+    readonly removed?: number;
+    /** Address of the block an operation inserted. */
+    readonly id?: string;
+}
+
 /** Result of one edit batch. */
 export interface EditReport {
     readonly document: DocumentSummary;
     readonly revision: number;
+    readonly results: readonly EditOperationResult[];
+}
+
+/** Options of `OpenWord.find()`. */
+export interface FindOptions {
+    /** Maximum number of hits to return. Defaults to 100. */
+    readonly limit?: number;
+}
+
+/** One text match inside a block's plain text. */
+export interface FindHit {
+    /** Stable block address: `section-N` for sections, `node-N` otherwise. */
+    readonly blockId: string;
+    /** Depth-first position of the block in document order. */
+    readonly blockIndex: number;
+    /** Nearest enclosing section id, or `null` at top level. */
+    readonly path: string | null;
+    /** Character offset of the match start inside the block text. */
+    readonly start: number;
+    /** Character offset of the match end inside the block text. */
+    readonly end: number;
+    /** Matched text. */
+    readonly text: string;
 }
 
 /** One thing a projection could not keep. */

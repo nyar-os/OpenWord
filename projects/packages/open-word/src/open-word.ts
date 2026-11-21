@@ -17,6 +17,8 @@ import type {
     EditOptions,
     ExportFormat,
     ExportReport,
+    FindHit,
+    FindOptions,
     InspectOptions,
     InspectReport,
     OpenWordOptions,
@@ -127,6 +129,23 @@ export class OpenWord {
         } finally {
             closeQuietly(opened.handle);
         }
+    }
+
+    /**
+     * Finds text across section titles, paragraphs, list items and table cells.
+     *
+     * Offsets are character positions inside the matched block's plain text.
+     */
+    async find(query: string, options: FindOptions = {}): Promise<readonly FindHit[]> {
+        this.assertActive();
+        if (typeof query !== 'string' || query.length === 0) {
+            throw new OpenWordError('session/argument-invalid', '`query` must be a non-empty string');
+        }
+        const limit = options?.limit;
+        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+            throw new OpenWordError('session/argument-invalid', '`limit` must be a positive integer');
+        }
+        return service.find(this.requireHandle(), query, limit);
     }
 
     /** Releases every tracked handle. Idempotent. */

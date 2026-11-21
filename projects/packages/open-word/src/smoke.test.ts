@@ -3,8 +3,8 @@
  *
  * They assert shell semantics only: the stable error code without a built
  * binding, a session that closes idempotently, synchronous argument validation
- * for create/open/edit/save/export, and a format registry that classifies the
- * whole family. Document behaviour is covered by the engine's own round-trip
+ * for create/open/edit/save/export/find, and a format registry that classifies
+ * the whole family. Document behaviour is covered by the engine's own round-trip
  * tests, not here.
  */
 
@@ -124,6 +124,33 @@ test('edit, save and export need an open document', async () => {
             (error: unknown) => error instanceof OpenWordError && error.code === 'document/not-found',
         );
     }
+    await word.dispose();
+});
+
+test('find validates the query and limit before the engine is reached', async () => {
+    const word = new OpenWord();
+    const invalid: (() => Promise<unknown>)[] = [
+        () => word.find(''),
+        () => word.find(42 as unknown as string),
+        () => word.find('alpha', { limit: 0 }),
+        () => word.find('alpha', { limit: -1 }),
+        () => word.find('alpha', { limit: 1.5 }),
+    ];
+    for (const call of invalid) {
+        await assert.rejects(
+            call,
+            (error: unknown) => error instanceof OpenWordError && error.code === 'session/argument-invalid',
+        );
+    }
+    await word.dispose();
+});
+
+test('find needs an open document', async () => {
+    const word = new OpenWord();
+    await assert.rejects(
+        word.find('alpha'),
+        (error: unknown) => error instanceof OpenWordError && error.code === 'document/not-found',
+    );
     await word.dispose();
 });
 

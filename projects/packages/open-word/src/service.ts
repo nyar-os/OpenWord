@@ -17,6 +17,7 @@ import type {
     EditRequest,
     ExportFormat,
     ExportReport,
+    FindHit,
     InspectCheck,
     InspectReport,
     SaveReport,
@@ -95,6 +96,15 @@ export function inspect(handle: number, checks?: readonly InspectCheck[]): Inspe
 /** Reads the committed summary of one document handle. */
 export function summary(handle: number): DocumentSummary {
     return decode<DocumentSummary>(() => binding('summary').document_summary(handle));
+}
+
+/** Searches one document for text and returns the matches. */
+export function find(handle: number, query: string, limit?: number): readonly FindHit[] {
+    return decode<FindHit[]>(() =>
+        limit === undefined
+            ? binding('find').document_find(handle, query)
+            : binding('find').document_find(handle, query, limit),
+    );
 }
 
 /** Applies one edit batch and returns the new committed summary. */

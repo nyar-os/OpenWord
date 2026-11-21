@@ -14,7 +14,7 @@ import { createCli } from '@wae/commander';
 
 import * as service from './service.js';
 import { runGui } from './gui.js';
-import type { Document, DocumentCapabilities, EditOperation, ExportFormat, ExportReport, InspectReport } from './types.js';
+import type { Document, DocumentCapabilities, EditOperation, ExportFormat, ExportReport, FindHit, InspectReport } from './types.js';
 import type { InspectCheck } from './types.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -104,6 +104,16 @@ function describeReport(report: InspectReport): string {
 
 function describeExport(report: ExportReport): string {
     return `export ${report.format} -> ${report.target} revision=${report.revision} editable=${report.editable} losses=${report.losses.length}`;
+}
+
+function describeHits(hits: readonly FindHit[]): string {
+    if (hits.length === 0) {
+        return 'no matches';
+    }
+    return [
+        `${hits.length} match(es)`,
+        ...hits.map((hit) => `  ${hit.blockId} [${hit.start}, ${hit.end}) ${hit.text}`),
+    ].join('\n');
 }
 
 cli.command('capabilities', 'cli.cmd.capabilities').actionCtx(async (_options, _args, ctx) => {
@@ -203,6 +213,32 @@ cli
     });
 
 cli
+    .command('find', 'cli.cmd.find')
+    .option('--limit <count>', 'cli.opt.limit')
+    .actionCtx(async (options, _args, ctx) => {
+        const file = input(options);
+        const query = options._?.[1];
+        if (file === undefined || query === undefined || query.length === 0) {
+            ctx.fail('open-word.cli.find-args', { message: 'a document file and a non-empty query are required' });
+            return 2;
+        }
+        const limitText = text(options, 'limit');
+        const limit = limitText === undefined ? undefined : parseInteger(limitText);
+        if (limitText !== undefined && (limit === undefined || limit < 1)) {
+            ctx.fail('open-word.cli.find-limit', { message: '`--limit <count>` must be a positive integer' });
+            return 2;
+        }
+        const opened = service.open(file);
+        try {
+            const hits = service.find(opened.handle, query, limit);
+            ctx.emitResult(hits, describeHits(hits));
+            return 0;
+        } finally {
+            service.close(opened.handle);
+        }
+    });
+
+cli
     .command('edit', 'cli.cmd.edit')
     .option('--paragraph <text>', 'cli.opt.paragraph')
     .option('--heading <text>', 'cli.opt.heading')
@@ -278,8 +314,49 @@ cli
     });
 
 cli
+    .command('replace', 'cli.cmd.replace')
+    .option('--find <text>', 'cli.opt.find')
+    .option('--with <text>', 'cli.opt.with')
+    .option('--out <file>', 'cli.opt.out')
+    .option('--overwrite', 'cli.opt.overwrite')
+    .actionCtx(async (options, _args, ctx) => {
+        const file = input(options);
+        if (file === undefined) {
+            ctx.fail('open-word.cli.file-required', { message: 'a document file is required' });
+            return 2;
+        }
+        const find = text(options, 'find');
+        const replacement = text(options, 'with');
+        if (find === undefined || find.length === 0 || replacement === undefined) {
+            ctx.fail('open-word.cli.replace-args', { message: '`--find <text>` and `--with <text>` are required' });
+            return 2;
+        }
+        const opened = service.open(file);
+        try {
+            const report = service.edit(opened.handle, {
+                operations: [{ type: 'document.replaceText', find, replace: replacement }],
+            });
+            const replaced = report.results[0]?.replaced ?? 0;
+            const out = text(options, 'out');
+            if (out !== undefined) {
+                const saved = service.save(opened.handle, out, flag(options, 'overwrite'));
+                ctx.emitResult(
+                    { ...report, saved },
+                    `${describeDocument(report.document)}\n  replaced: ${replaced}\n  saved: ${saved.path} (${saved.bytes} bytes)`,
+                );
+            }
+            else {
+                ctx.emitResult(report, `${describeDocument(report.document)}\n  replaced: ${replaced}`);
+            }
+            return 0;
+        } finally {
+            service.close(opened.handle);
+        }
+    });
+
+cli
     .command('export', 'cli.cmd.export')
-    .option('--format <format>', 'cli.opt.format', { enum: ['docx', 'dotx', 'pdf', 'html', 'md'] })
+    .option('--format <format>', 'cli.opt.format', { enum: ['docx', 'dotx', 'pdf', 'html', 'md', 'txt'] })
     .option('--out <file>', 'cli.opt.out')
     .option('--overwrite', 'cli.opt.overwrite')
     .actionCtx(async (options, _args, ctx) => {

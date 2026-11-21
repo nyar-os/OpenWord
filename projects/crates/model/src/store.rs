@@ -14,7 +14,10 @@ use std::{
 use document_ir::{DocumentGraph, DocumentId};
 use serde_json::{Value, json};
 
-use crate::summary;
+use crate::{ServiceError, summary};
+
+/// In-memory undo depth. History never reaches the `.oword` container.
+const HISTORY_LIMIT: usize = 50;
 
 static HANDLES: Mutex<Option<HashMap<u64, Entry>>> = Mutex::new(None);
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
@@ -32,16 +35,75 @@ pub(crate) enum Source {
     Other(&'static str),
 }
 
-/// One live document plus its provenance.
+/// One live document plus its provenance and in-memory history.
 pub(crate) struct Entry {
     pub(crate) graph: DocumentGraph,
     pub(crate) source: Source,
+    /// Graphs as they were before each committed mutation, oldest first.
+    undo: Vec<DocumentGraph>,
+    /// Graphs discarded by undo, most recently undone last.
+    redo: Vec<DocumentGraph>,
 }
 
 impl Entry {
     pub(crate) fn new(graph: DocumentGraph, source: Source) -> Self {
-        Self { graph, source }
+        Self { graph, source, undo: Vec::new(), redo: Vec::new() }
     }
+
+    /// Records one committed mutation: the prior state joins the undo stack and
+    /// the redo path is discarded, because the future it described is gone.
+    pub(crate) fn commit_history(&mut self, before: DocumentGraph) {
+        push_capped(&mut self.undo, before);
+        self.redo.clear();
+    }
+
+    /// Restores the state `steps` mutations back and bumps the revision once.
+    ///
+    /// The revision is not restored from the snapshot: revisions are monotonic,
+    /// so an undone document stays distinguishable from the one it replaced.
+    pub(crate) fn undo(&mut self, steps: usize) -> Result<(), ServiceError> {
+        if steps == 0 || steps > self.undo.len() {
+            return Err(crate::invalid(format!("cannot undo {steps} step(s); {} available", self.undo.len())));
+        }
+        let revision = self.graph.revision;
+        for _ in 0..steps {
+            let snapshot = self.undo.pop().expect("the step count was checked against the stack");
+            push_capped(&mut self.redo, std::mem::replace(&mut self.graph, snapshot));
+        }
+        self.graph.revision = revision + 1;
+        Ok(())
+    }
+
+    /// Replays `steps` undone mutations and bumps the revision once.
+    pub(crate) fn redo(&mut self, steps: usize) -> Result<(), ServiceError> {
+        if steps == 0 || steps > self.redo.len() {
+            return Err(crate::invalid(format!("cannot redo {steps} step(s); {} available", self.redo.len())));
+        }
+        let revision = self.graph.revision;
+        for _ in 0..steps {
+            let snapshot = self.redo.pop().expect("the step count was checked against the stack");
+            push_capped(&mut self.undo, std::mem::replace(&mut self.graph, snapshot));
+        }
+        self.graph.revision = revision + 1;
+        Ok(())
+    }
+
+    /// Whether an undo snapshot is available.
+    pub(crate) fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+
+    /// Whether a redo snapshot is available.
+    pub(crate) fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
+    }
+}
+
+fn push_capped(stack: &mut Vec<DocumentGraph>, snapshot: DocumentGraph) {
+    if stack.len() == HISTORY_LIMIT {
+        stack.remove(0);
+    }
+    stack.push(snapshot);
 }
 
 /// Registers one entry and returns the `{ handle, document, complete, losses }` response.

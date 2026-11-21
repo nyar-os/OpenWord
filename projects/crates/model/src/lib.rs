@@ -176,9 +176,14 @@ pub fn find(handle: u64, query: &str, limit: Option<u32>) -> Result<Value, Servi
 }
 
 /// Applies a batch of edits and returns the new summary and revision.
+///
+/// A successful batch records the prior graph for undo and clears the redo
+/// path; a rejected batch leaves both the document and its history untouched.
 pub fn edit(handle: u64, request: &Value) -> Result<Value, ServiceError> {
     store::with_mut(handle, |entry| {
+        let before = entry.graph.clone();
         let results = edit::apply(&mut entry.graph, request)?;
+        entry.commit_history(before);
         Ok(json!({
             "document": summary::project(&entry.graph),
             "revision": entry.graph.revision,

@@ -13,6 +13,7 @@ import type {
     DocumentCapabilities,
     DocumentCreateInput,
     DocumentOpenInput,
+    DocumentOutline,
     EditOperation,
     EditOptions,
     EditReport,
@@ -102,6 +103,18 @@ export class OpenWord {
     async stats(): Promise<StatsReport> {
         this.assertActive();
         return service.stats(this.requireHandle());
+    }
+
+    /**
+     * Reads the nested heading outline of the active document.
+     *
+     * Every section appears once, nested under the closest preceding heading
+     * with a lower level. Each item carries its `section-N` id, heading level,
+     * title (`null` when empty), depth-first `blockIndex` and child items.
+     */
+    async outline(): Promise<DocumentOutline> {
+        this.assertActive();
+        return service.outline(this.requireHandle());
     }
 
     /** Exports the active document to one projection target. */

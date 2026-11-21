@@ -131,6 +131,32 @@ export interface DocumentSummary {
 /** An opened document at its committed revision. */
 export type Document = DocumentSummary;
 
+/** One heading in the nested document outline. */
+export interface OutlineItem {
+    /** Stable section address: `section-N`. */
+    readonly id: string;
+    /** Heading level, 1 through 6. */
+    readonly level: number;
+    /** Heading plain text, or `null` when the heading is empty. */
+    readonly title: string | null;
+    /** Depth-first position of the section block in document order. */
+    readonly blockIndex: number;
+    /** Headings nested under this one, in document order. */
+    readonly children: readonly OutlineItem[];
+}
+
+/**
+ * Nested heading outline of one document at its committed revision.
+ *
+ * Every section appears exactly once, nested under the closest preceding
+ * heading with a lower level, so a caller can render a table of contents or
+ * address a heading without walking the summary.
+ */
+export interface DocumentOutline {
+    readonly revision: number;
+    readonly items: readonly OutlineItem[];
+}
+
 /** Counts of one document at its committed revision. */
 export interface StatsReport {
     readonly revision: number;

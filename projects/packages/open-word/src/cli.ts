@@ -17,11 +17,13 @@ import { runGui } from './gui.js';
 import type {
     Document,
     DocumentCapabilities,
+    DocumentOutline,
     EditOperation,
     ExportFormat,
     ExportReport,
     FindHit,
     InspectReport,
+    OutlineItem,
     SaveReport,
     StatsReport,
 } from './types.js';
@@ -168,6 +170,23 @@ function describeStats(report: StatsReport): string {
         `headings: ${headings.length > 0 ? headings : 'none'}`,
         `words=${report.words} characters=${report.characters} (${report.charactersWithoutWhitespace} without spaces) reading=${report.readingMinutes} min`,
     ].join('\n');
+}
+
+function describeOutline(report: DocumentOutline): string {
+    const lines = [`revision=${report.revision} headings=${countOutline(report.items)}`];
+    const walk = (items: readonly OutlineItem[], depth: number): void => {
+        for (const item of items) {
+            const title = item.title ?? '(untitled)';
+            lines.push(`${'  '.repeat(depth)}h${item.level} ${title} [${item.id} @${item.blockIndex}]`);
+            walk(item.children, depth + 1);
+        }
+    };
+    walk(report.items, 0);
+    return lines.join('\n');
+}
+
+function countOutline(items: readonly OutlineItem[]): number {
+    return items.reduce((total, item) => total + 1 + countOutline(item.children), 0);
 }
 
 function parseSteps(options: ParsedOptions): number | undefined | null {
@@ -318,6 +337,20 @@ cli.command('stats', 'cli.cmd.stats').actionCtx(async (options, _args, ctx) => {
         await word.open({ path: file });
         const report = await word.stats();
         ctx.emitResult(report, describeStats(report));
+    });
+    return 0;
+});
+
+cli.command('outline', 'cli.cmd.outline').actionCtx(async (options, _args, ctx) => {
+    const file = input(options);
+    if (file === undefined) {
+        ctx.fail('open-word.cli.file-required', { message: 'a document file is required' });
+        return 2;
+    }
+    await withSession(async (word) => {
+        await word.open({ path: file });
+        const report = await word.outline();
+        ctx.emitResult(report, describeOutline(report));
     });
     return 0;
 });

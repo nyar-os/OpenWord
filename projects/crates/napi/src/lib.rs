@@ -120,6 +120,13 @@ fn document_summary(ctx: CallContext) -> Result<JsValue> {
     respond(&ctx, &open_word_document::summary(handle).map_err(failure_of)?)
 }
 
+/// Returns the nested heading outline of one document handle.
+#[function]
+fn document_outline(ctx: CallContext) -> Result<JsValue> {
+    let handle = handle(&ctx, 0)?;
+    respond(&ctx, &open_word_document::outline(handle).map_err(failure_of)?)
+}
+
 /// Returns block, word and reading-time statistics for one document handle.
 #[function]
 fn word_stats(ctx: CallContext) -> Result<JsValue> {
@@ -625,6 +632,7 @@ register_module![
     document_save,
     document_inspect,
     document_summary,
+    document_outline,
     word_stats,
     document_find,
     document_replace,

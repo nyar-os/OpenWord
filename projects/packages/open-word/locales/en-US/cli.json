@@ -9,6 +9,7 @@
             "inspect": "Run structure and style checks on a document",
             "find": "Search a document and print match positions",
             "stats": "Print block, heading, table, word and reading-time counts",
+            "outline": "Print the nested heading outline with levels and block positions",
             "edit": "Apply atomic edits and print the new revision",
             "replace": "Replace text in a document and print the replacement count",
             "template": "Fill {{key}} placeholders from a JSON object and save the result",

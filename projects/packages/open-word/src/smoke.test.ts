@@ -23,6 +23,7 @@ const installed = (() => {
     }
 })();
 const withAddon = installed ? 'a built addon is installed' : false;
+const withoutAddon = installed ? false : 'a built addon is not installed';
 
 test('session construction is synchronous and side-effect free', async () => {
     const word = new OpenWord();
@@ -151,6 +152,29 @@ test('find needs an open document', async () => {
         word.find('alpha'),
         (error: unknown) => error instanceof OpenWordError && error.code === 'document/not-found',
     );
+    await word.dispose();
+});
+
+test('outline nests headings by level in an open document', { skip: withoutAddon }, async () => {
+    const word = new OpenWord();
+    await word.create({ title: 'Outline' });
+    await word.edit([
+        { type: 'heading.append', level: 1, text: 'Overview' },
+        { type: 'heading.append', level: 2, text: 'Details' },
+        { type: 'heading.append', level: 1, text: 'Appendix' },
+    ]);
+    const report = await word.outline();
+    assert.equal(report.revision, 3);
+    assert.equal(report.items.length, 2);
+    assert.equal(report.items[0].title, 'Overview');
+    assert.equal(report.items[0].level, 1);
+    assert.ok(report.items[0].id.startsWith('section-'));
+    assert.equal(report.items[0].children.length, 1);
+    assert.equal(report.items[0].children[0].title, 'Details');
+    assert.equal(report.items[0].children[0].level, 2);
+    assert.deepEqual(report.items[0].children[0].children, []);
+    assert.equal(report.items[1].title, 'Appendix');
+    assert.deepEqual(report.items[1].children, []);
     await word.dispose();
 });
 

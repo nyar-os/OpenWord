@@ -12,6 +12,7 @@ import type {
     Document,
     DocumentCapabilities,
     DocumentCreateInput,
+    DocumentOutline,
     DocumentSummary,
     EditReport,
     EditRequest,
@@ -103,6 +104,11 @@ export function inspect(handle: number, checks?: readonly InspectCheck[]): Inspe
 /** Reads the committed summary of one document handle. */
 export function summary(handle: number): DocumentSummary {
     return decode<DocumentSummary>(() => binding('summary').document_summary(handle));
+}
+
+/** Reads the nested heading outline of one document handle. */
+export function outline(handle: number): DocumentOutline {
+    return decode<DocumentOutline>(() => binding('outline').document_outline(handle));
 }
 
 /** Reads block, word and reading-time statistics of one document handle. */

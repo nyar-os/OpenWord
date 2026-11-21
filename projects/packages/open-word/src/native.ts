@@ -19,6 +19,7 @@ export interface NativeBinding {
     document_save(handle: number, path: string, overwrite: boolean): string;
     document_inspect(handle: number, checksJson?: string): string;
     document_summary(handle: number): string;
+    document_outline(handle: number): string;
     word_stats(handle: number): string;
     document_find(handle: number, query: string, limit?: number): string;
     document_replace(handle: number, requestJson: string): string;

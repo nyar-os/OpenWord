@@ -36,6 +36,7 @@ open-word open report.docx
 open-word save report.docx --out report.oword
 open-word inspect report.docx --checks styles,tables,links
 open-word stats report.docx
+open-word outline report.docx
 open-word find report.oword "revenue" --limit 5
 open-word replace report.oword --find "old name" --with "new name" --ignore-case --whole-word --out report.oword --overwrite
 open-word template letter.docx --values '{"name":"Ada","amount":42}' --out letter-filled.oword --overwrite
@@ -93,6 +94,13 @@ counts of a document, plus word and character counts and a reading time at 200
 words per minute. Words are whitespace-separated and read from section titles,
 paragraphs, list items and table cells in document order.
 
+`outline` lists every section heading exactly once, nested under the closest
+preceding heading with a lower level, so a level-3 heading under a level-1
+heading becomes its direct child rather than a sibling. Each item carries its
+`section-N` id, heading level, title (`null` when the heading is empty),
+depth-first `blockIndex` and its child items, which lets a caller render a table
+of contents or address a heading without walking the flat summary.
+
 Template filling is placeholder substitution, not a template engine:
 `create --template` opens an existing document (any format `open` accepts) and
 applies the optional title/author, while `template.fill` replaces `{{key}}` and
@@ -121,7 +129,7 @@ OpenWord/
 
 This repository ships the first usable slice: project containers, Word,
 Markdown/HTML/text import, partial RTF import, structural inspection, document
-statistics, atomic edits (including table grids, block moves and `{{key}}`
-template filling), text search and `docx`/`md`/`html`/`pdf`/`txt` export. Macro
-handling and the remaining format family are reported as unsupported until they
-are wired.
+statistics and nested heading outlines, atomic edits (including table grids,
+block moves and `{{key}}` template filling), text search and
+`docx`/`md`/`html`/`pdf`/`txt` export. Macro handling and the remaining format
+family are reported as unsupported until they are wired.

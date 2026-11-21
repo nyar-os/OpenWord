@@ -110,6 +110,24 @@ fn document_summary(ctx: CallContext) -> Result<JsValue> {
     respond(&ctx, &open_word_document::summary(handle).map_err(failure_of)?)
 }
 
+/// Searches one document handle for text and returns the matches.
+#[function]
+fn document_find(ctx: CallContext) -> Result<JsValue> {
+    let handle = handle(&ctx, 0)?;
+    let query = text(&ctx, 1)?;
+    let limit = match ctx.args().get(2) {
+        Some(value) if !value.is_undefined()? => {
+            let raw = value.as_i64()?;
+            Some(
+                u32::try_from(raw)
+                    .map_err(|_| Error::new("session/argument-invalid: `limit` must be a non-negative integer"))?,
+            )
+        }
+        _ => None,
+    };
+    respond(&ctx, &open_word_document::find(handle, &query, limit).map_err(failure_of)?)
+}
+
 /// Applies one JSON edit request to a document handle.
 #[function]
 fn document_edit(ctx: CallContext) -> Result<JsValue> {
@@ -203,6 +221,13 @@ impl IpcHandler for WordIpcHandler {
             "document.summary" => match handle_field(&value) {
                 Some(handle) => document_outcome(id, "summaryResult", open_word_document::summary(handle)),
                 None => failure(id, "documentError", "session/argument-invalid: `handle` is required".to_string()),
+            },
+            "document.find" => match (handle_field(&value), string_field(&value, "query")) {
+                (Some(handle), Some(query)) => {
+                    let limit = value.get("limit").and_then(Value::as_u64).and_then(|value| u32::try_from(value).ok());
+                    document_outcome(id, "findResult", open_word_document::find(handle, &query, limit))
+                }
+                _ => failure(id, "documentError", "session/argument-invalid: `handle` and `query` are required".to_string()),
             },
             "document.edit" => match handle_field(&value) {
                 Some(handle) => {
@@ -499,6 +524,7 @@ register_module![
     document_save,
     document_inspect,
     document_summary,
+    document_find,
     document_edit,
     document_export,
     document_close,

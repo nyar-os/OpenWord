@@ -59,6 +59,8 @@ export interface FormatCapability {
     readonly import: SupportLevel;
     readonly edit: SupportLevel;
     readonly export: SupportLevel;
+    /** Loss codes a `partial` route can report, such as `import.rtf.table`. */
+    readonly lossCodes?: readonly string[];
 }
 
 /** Result of `OpenWord.capabilities()`. Read this instead of assuming a method works. */
@@ -177,7 +179,13 @@ export type EditOperation =
     | { readonly type: 'document.replaceText'; readonly find: string; readonly replace: string; readonly limit?: number }
     | { readonly type: 'block.remove'; readonly id: string }
     | { readonly type: 'paragraph.insert'; readonly index: number; readonly text: string }
-    | { readonly type: 'table.setCell'; readonly table: number; readonly row: number; readonly column: number; readonly text: string };
+    | { readonly type: 'table.setCell'; readonly table: number; readonly row: number; readonly column: number; readonly text: string }
+    | { readonly type: 'table.insertRow'; readonly table: number; readonly row: number; readonly cells?: readonly string[] }
+    | { readonly type: 'table.deleteRow'; readonly table: number; readonly row: number }
+    | { readonly type: 'table.insertColumn'; readonly table: number; readonly column: number; readonly cells?: readonly string[] }
+    | { readonly type: 'table.deleteColumn'; readonly table: number; readonly column: number }
+    | { readonly type: 'paragraph.update'; readonly id?: string; readonly index?: number; readonly text: string }
+    | { readonly type: 'block.move'; readonly id: string; readonly index: number };
 
 /** Options of `OpenWord.edit()`. */
 export interface EditOptions {
@@ -198,8 +206,14 @@ export interface EditOperationResult {
     readonly replaced?: number;
     /** Blocks physically removed by `block.remove`. */
     readonly removed?: number;
-    /** Address of the block an operation inserted. */
+    /** Address of the block an operation inserted or updated. */
     readonly id?: string;
+    /** Table index addressed by a table operation. */
+    readonly table?: number;
+    /** Row index addressed by a row operation. */
+    readonly row?: number;
+    /** Grid column index addressed by a column operation. */
+    readonly column?: number;
 }
 
 /** Result of one edit batch. */
@@ -229,6 +243,20 @@ export interface FindHit {
     readonly end: number;
     /** Matched text. */
     readonly text: string;
+}
+
+/** One thing an import could not keep. */
+export interface ImportLoss {
+    readonly code: string;
+    readonly severity: 'warning' | 'error';
+    readonly message: string;
+}
+
+/** Import completeness of one opened document. */
+export interface ImportReport {
+    /** False when the importer recorded at least one loss. */
+    readonly complete: boolean;
+    readonly losses: readonly ImportLoss[];
 }
 
 /** One thing a projection could not keep. */

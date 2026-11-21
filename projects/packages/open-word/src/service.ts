@@ -18,6 +18,7 @@ import type {
     ExportFormat,
     ExportReport,
     FindHit,
+    ImportReport,
     InspectCheck,
     InspectReport,
     SaveReport,
@@ -54,8 +55,8 @@ function translate(error: unknown): OpenWordError {
     return new OpenWordError('format/invalid', message, { cause: error });
 }
 
-/** A released-on-close document handle plus its committed summary. */
-export interface DocumentHandle {
+/** A released-on-close document handle plus its committed summary and import losses. */
+export interface DocumentHandle extends ImportReport {
     readonly handle: number;
     readonly document: Document;
 }

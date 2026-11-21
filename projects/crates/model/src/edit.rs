@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use document_ir::{Block, DocumentGraph, Inline, NodeId, TableCell, TableRow};
+use document_ir::{Block, DocumentGraph, Inline, ListItem, NodeId, TableCell, TableRow};
 use serde_json::{Value, json};
 
 use crate::{ServiceError, search};
@@ -15,6 +15,9 @@ use crate::{ServiceError, search};
 enum Operation {
     Paragraph(String),
     Heading { level: u8, text: String },
+    List { ordered: bool, items: Vec<String>, start: Option<u32> },
+    Quote(String),
+    Code { text: String, language: Option<String> },
     Table(Vec<Vec<String>>),
     Metadata { title: Option<String>, author: Option<String> },
     ReplaceText { find: String, replace: String, limit: Option<usize> },
@@ -27,6 +30,7 @@ enum Operation {
     DeleteColumn { table: usize, column: usize },
     UpdateParagraph { target: Target, text: String },
     MoveBlock { id: NodeId, index: usize },
+    TemplateFill { values: Vec<(String, String)> },
 }
 
 #[derive(Clone)]
@@ -101,6 +105,27 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             }
             Ok(Operation::Heading { level: level as u8, text: required_text(operation, "text")? })
         }
+        "list.append" => {
+            let ordered = optional_bool(operation, "ordered")?.unwrap_or(false);
+            let items = required_items(operation)?;
+            let start = parse_list_start(operation, ordered, items.len())?;
+            Ok(Operation::List { ordered, items, start })
+        }
+        "quote.append" => {
+            let text = required_text(operation, "text")?;
+            if text.is_empty() {
+                return Err(crate::invalid("`quote.append` needs a non-empty `text`"));
+            }
+            Ok(Operation::Quote(text))
+        }
+        "code.append" => {
+            let text = required_text(operation, "text")?;
+            if text.is_empty() {
+                return Err(crate::invalid("`code.append` needs a non-empty `text`"));
+            }
+            let language = optional_text(operation, "language")?.filter(|value| !value.trim().is_empty());
+            Ok(Operation::Code { text, language })
+        }
         "table.append" => Ok(Operation::Table(required_rows(operation)?)),
         "metadata.set" => {
             let title = optional_text(operation, "title")?;
@@ -158,6 +183,7 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             Ok(Operation::UpdateParagraph { target: paragraph_target(operation)?, text: required_text(operation, "text")? })
         }
         "block.move" => Ok(Operation::MoveBlock { id: parse_block_id(operation)?, index: required_index(operation, "index")? }),
+        "template.fill" => Ok(Operation::TemplateFill { values: required_values(operation)? }),
         other => Err(ServiceError::new("object/unsupported", format!("edit operation `{other}` is not supported"))),
     }
 }
@@ -189,6 +215,28 @@ fn optional_cells(operation: &Value) -> Result<Option<Vec<String>>, ServiceError
             .map(Some),
         Some(_) => Err(crate::invalid("`cells` must be an array of strings")),
     }
+}
+
+fn required_values(operation: &Value) -> Result<Vec<(String, String)>, ServiceError> {
+    let values = operation
+        .get("values")
+        .and_then(Value::as_object)
+        .ok_or_else(|| crate::invalid("`template.fill` needs a `values` object"))?;
+    if values.is_empty() {
+        return Err(crate::invalid("`values` must contain at least one placeholder value"));
+    }
+    values
+        .iter()
+        .map(|(key, value)| {
+            let text = match value {
+                Value::String(text) => text.clone(),
+                Value::Number(number) => number.to_string(),
+                Value::Bool(flag) => flag.to_string(),
+                _ => return Err(crate::invalid(format!("`values.{key}` must be a string, number or boolean"))),
+            };
+            Ok((key.clone(), text))
+        })
+        .collect()
 }
 
 fn required_text(operation: &Value, key: &str) -> Result<String, ServiceError> {
@@ -239,6 +287,47 @@ fn required_rows(operation: &Value) -> Result<Vec<Vec<String>>, ServiceError> {
         .collect()
 }
 
+fn required_items(operation: &Value) -> Result<Vec<String>, ServiceError> {
+    let items = operation
+        .get("items")
+        .and_then(Value::as_array)
+        .ok_or_else(|| crate::invalid("`list.append` needs an `items` array"))?;
+    if items.is_empty() {
+        return Err(crate::invalid("`items` must contain at least one list item"));
+    }
+    items
+        .iter()
+        .map(|item| item.as_str().map(str::to_string).ok_or_else(|| crate::invalid("each list item must be a string")))
+        .collect()
+}
+
+fn optional_bool(operation: &Value, key: &str) -> Result<Option<bool>, ServiceError> {
+    match operation.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(flag)) => Ok(Some(*flag)),
+        Some(_) => Err(crate::invalid(format!("`{key}` must be a boolean"))),
+    }
+}
+
+/// Parses the optional first number of an ordered list.
+///
+/// `start` is only meaningful for ordered lists; unordered lists always keep
+/// `number = None`. A valid start is a positive integer whose numbered range
+/// still fits in `u32`, because item numbers are stored as `u32`.
+fn parse_list_start(operation: &Value, ordered: bool, items: usize) -> Result<Option<u32>, ServiceError> {
+    let Some(start) = optional_index(operation, "start")?
+    else {
+        return Ok(None);
+    };
+    if !ordered {
+        return Err(crate::invalid("`start` is only valid for ordered lists"));
+    }
+    if start == 0 || start > u32::MAX as usize || start + items - 1 > u32::MAX as usize {
+        return Err(crate::invalid("`start` must be a positive integer and the numbered range must fit in u32"));
+    }
+    Ok(Some(start as u32))
+}
+
 fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, ServiceError> {
     match operation {
         Operation::Paragraph(text) => {
@@ -248,6 +337,19 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
         Operation::Heading { level, text } => {
             append_block(graph, Block::Section { level, title: vec![Inline::Text { text }], children: Vec::new() });
             Ok(json!({ "type": "heading.append" }))
+        }
+        Operation::List { ordered, items, start } => {
+            let count = items.len();
+            append_list(graph, ordered, items, start);
+            Ok(json!({ "type": "list.append", "ordered": ordered, "items": count, "start": start }))
+        }
+        Operation::Quote(text) => {
+            append_quote(graph, text);
+            Ok(json!({ "type": "quote.append" }))
+        }
+        Operation::Code { text, language } => {
+            append_block(graph, Block::Code { language: language.clone(), content: text });
+            Ok(json!({ "type": "code.append", "language": language }))
         }
         Operation::Table(rows) => {
             append_table(graph, rows);
@@ -315,7 +417,37 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             graph.bump_revision();
             Ok(json!({ "type": "block.move", "id": label, "index": index }))
         }
+        Operation::TemplateFill { values } => {
+            let replaced = fill_template(graph, &values);
+            graph.bump_revision();
+            Ok(json!({ "type": "template.fill", "replaced": replaced }))
+        }
     }
+}
+
+/// Appends one list block whose items carry plain-text content. Ordered items
+/// record explicit numbers so numbering survives export and edit; numbering
+/// begins at `start` (1 when omitted) and increases by one per item.
+fn append_list(graph: &mut DocumentGraph, ordered: bool, items: Vec<String>, start: Option<u32>) {
+    let first = start.unwrap_or(1);
+    let items = items
+        .into_iter()
+        .enumerate()
+        .map(|(index, text)| ListItem {
+            content: vec![Inline::Text { text }],
+            children: Vec::new(),
+            number: ordered.then_some(first + index as u32),
+            is_task: false,
+            is_checked: None,
+        })
+        .collect();
+    append_block(graph, Block::List { ordered, items });
+}
+
+/// Appends one quote block wrapping a single paragraph child.
+fn append_quote(graph: &mut DocumentGraph, text: String) {
+    let child = graph.push_block(Block::Paragraph { content: vec![Inline::Text { text }] });
+    append_block(graph, Block::Quote { children: vec![child] });
 }
 
 fn append_table(graph: &mut DocumentGraph, rows: Vec<Vec<String>>) {
@@ -429,6 +561,78 @@ fn replace_in_text(text: &str, find: &str, replace: &str, budget: &mut usize) ->
         return (text.to_string(), 0);
     }
     output.push_str(&text[last..]);
+    (output, replaced)
+}
+
+/// Substitutes `{{key}}` placeholders across titles, paragraphs, list items and
+/// table cells (cell text is stored in child paragraphs) in document order.
+/// Unknown placeholders stay verbatim.
+fn fill_template(graph: &mut DocumentGraph, values: &[(String, String)]) -> usize {
+    let mut replaced = 0;
+    for id in search::flat_order(graph) {
+        let Some(node) = graph.blocks.iter_mut().find(|node| node.id == id)
+        else {
+            continue;
+        };
+        replaced += match &mut node.block {
+            Block::Section { title, .. } => fill_in_inlines(title, values),
+            Block::Paragraph { content } => fill_in_inlines(content, values),
+            Block::List { items, .. } => items.iter_mut().map(|item| fill_in_inlines(&mut item.content, values)).sum(),
+            _ => 0,
+        };
+    }
+    replaced
+}
+
+fn fill_in_inlines(inlines: &mut [Inline], values: &[(String, String)]) -> usize {
+    let mut replaced = 0;
+    for inline in inlines {
+        match inline {
+            Inline::Text { text } => {
+                let (rewritten, count) = fill_in_text(text, values);
+                if count > 0 {
+                    *text = rewritten;
+                }
+                replaced += count;
+            }
+            Inline::Styled { children, .. } | Inline::Attributed { children, .. } => {
+                replaced += fill_in_inlines(children, values);
+            }
+            Inline::Link { display, .. } => replaced += fill_in_inlines(display, values),
+            Inline::Image { alt, .. } => replaced += fill_in_inlines(alt, values),
+            Inline::Note { display: Some(display), .. } | Inline::Citation { display: Some(display), .. } => {
+                replaced += fill_in_inlines(display, values);
+            }
+            _ => {}
+        }
+    }
+    replaced
+}
+
+/// Replaces `{{key}}` occurrences inside one text run. Inner whitespace around
+/// the key is ignored, so `{{ key }}` matches the same value as `{{key}}`.
+fn fill_in_text(text: &str, values: &[(String, String)]) -> (String, usize) {
+    let mut output = String::with_capacity(text.len());
+    let mut replaced = 0;
+    let mut rest = text;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}")
+        else {
+            break;
+        };
+        let key = after[..end].trim();
+        match values.iter().find(|(name, _)| name == key) {
+            Some((_, value)) => {
+                output.push_str(&rest[..start]);
+                output.push_str(value);
+                replaced += 1;
+            }
+            None => output.push_str(&rest[..start + 2 + end + 2]),
+        }
+        rest = &after[end + 2..];
+    }
+    output.push_str(rest);
     (output, replaced)
 }
 

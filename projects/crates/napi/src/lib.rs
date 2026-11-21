@@ -120,6 +120,13 @@ fn document_summary(ctx: CallContext) -> Result<JsValue> {
     respond(&ctx, &open_word_document::summary(handle).map_err(failure_of)?)
 }
 
+/// Returns block, word and reading-time statistics for one document handle.
+#[function]
+fn word_stats(ctx: CallContext) -> Result<JsValue> {
+    let handle = handle(&ctx, 0)?;
+    respond(&ctx, &open_word_document::stats(handle).map_err(failure_of)?)
+}
+
 /// Searches one document handle for text and returns the matches.
 #[function]
 fn document_find(ctx: CallContext) -> Result<JsValue> {
@@ -601,6 +608,7 @@ register_module![
     document_save,
     document_inspect,
     document_summary,
+    word_stats,
     document_find,
     document_edit,
     document_undo,

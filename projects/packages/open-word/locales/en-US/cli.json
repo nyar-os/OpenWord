@@ -8,8 +8,10 @@
             "save": "Save an open document to a project file",
             "inspect": "Run structure and style checks on a document",
             "find": "Search a document and print match positions",
+            "stats": "Print block, heading, table, word and reading-time counts",
             "edit": "Apply atomic edits and print the new revision",
             "replace": "Replace text in a document and print the replacement count",
+            "template": "Fill {{key}} placeholders from a JSON object and save the result",
             "undo": "Undo recent edits in a document (saved back only for .oword)",
             "redo": "Redo undone edits in a document (saved back only for .oword)",
             "merge": "Append another document's blocks to a document",
@@ -26,13 +28,20 @@
             "paragraph": "Append a paragraph with this text",
             "heading": "Append a section heading with this text",
             "level": "Heading level between 1 and 6",
+            "bullet": "Append an unordered list item (repeat the option to add more)",
+            "numbered": "Append an ordered list item (repeat the option to add more)",
+            "numberedStart": "First number of the appended ordered list (default 1)",
+            "quote": "Append a block quote with this text",
+            "code": "Append a fenced code block with this text",
+            "codeLang": "Language tag for the code block, such as rust",
             "table": "Append a table from a JSON array of string rows",
             "author": "Document author",
             "expectedRevision": "Reject the edit unless the document is at this revision",
             "limit": "Maximum number of matches to return",
             "steps": "Number of edits to undo or redo (default 1)",
             "find": "Text to search for",
-            "with": "Replacement text"
+            "with": "Replacement text",
+            "values": "JSON object of placeholder values, such as {\"name\":\"Ada\"}"
         }
     }
 }

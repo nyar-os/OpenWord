@@ -24,6 +24,7 @@ import type {
     MergeResult,
     RedoResult,
     SaveReport,
+    StatsReport,
     UndoResult,
 } from './types.js';
 
@@ -100,6 +101,11 @@ export function inspect(handle: number, checks?: readonly InspectCheck[]): Inspe
 /** Reads the committed summary of one document handle. */
 export function summary(handle: number): DocumentSummary {
     return decode<DocumentSummary>(() => binding('summary').document_summary(handle));
+}
+
+/** Reads block, word and reading-time statistics of one document handle. */
+export function stats(handle: number): StatsReport {
+    return decode<StatsReport>(() => binding('stats').word_stats(handle));
 }
 
 /** Searches one document for text and returns the matches. */

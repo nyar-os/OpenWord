@@ -78,7 +78,7 @@ export interface DocumentCapabilities {
 /** Options of `OpenWord.create()`. */
 export interface DocumentCreateInput {
     readonly title?: string;
-    /** Template file to start from, once template rendering lands. */
+    /** Document file to start from; its blocks become the new document. */
     readonly template?: string;
     readonly author?: string;
 }
@@ -131,6 +131,26 @@ export interface DocumentSummary {
 /** An opened document at its committed revision. */
 export type Document = DocumentSummary;
 
+/** Counts of one document at its committed revision. */
+export interface StatsReport {
+    readonly revision: number;
+    /** Every reachable block node, in document order. */
+    readonly blocks: number;
+    /** Paragraph blocks, including table cell paragraphs. */
+    readonly paragraphs: number;
+    /** Heading count per section level, such as `{ "1": 2 }`. */
+    readonly headings: Readonly<Record<string, number>>;
+    readonly tables: number;
+    /** Rows across every table's header, body and footer bands. */
+    readonly tableRows: number;
+    /** Whitespace-separated words in titles, paragraphs, list items, code blocks and cells. */
+    readonly words: number;
+    readonly characters: number;
+    readonly charactersWithoutWhitespace: number;
+    /** `words / 200`, rounded up. */
+    readonly readingMinutes: number;
+}
+
 /** Options of `OpenWord.inspect()`. */
 export interface InspectOptions {
     readonly checks?: readonly InspectCheck[];
@@ -175,6 +195,15 @@ export interface SaveOptions {
 export type EditOperation =
     | { readonly type: 'paragraph.append'; readonly text: string }
     | { readonly type: 'heading.append'; readonly level: number; readonly text: string }
+    | {
+          readonly type: 'list.append';
+          readonly ordered?: boolean;
+          readonly items: readonly string[];
+          /** First number of an ordered list. Defaults to 1; invalid for unordered lists. */
+          readonly start?: number;
+      }
+    | { readonly type: 'quote.append'; readonly text: string }
+    | { readonly type: 'code.append'; readonly text: string; readonly language?: string }
     | { readonly type: 'table.append'; readonly rows: readonly (readonly string[])[] }
     | { readonly type: 'metadata.set'; readonly title?: string; readonly author?: string }
     | { readonly type: 'document.replaceText'; readonly find: string; readonly replace: string; readonly limit?: number }
@@ -186,7 +215,11 @@ export type EditOperation =
     | { readonly type: 'table.insertColumn'; readonly table: number; readonly column: number; readonly cells?: readonly string[] }
     | { readonly type: 'table.deleteColumn'; readonly table: number; readonly column: number }
     | { readonly type: 'paragraph.update'; readonly id?: string; readonly index?: number; readonly text: string }
-    | { readonly type: 'block.move'; readonly id: string; readonly index: number };
+    | { readonly type: 'block.move'; readonly id: string; readonly index: number }
+    | {
+          readonly type: 'template.fill';
+          readonly values: Readonly<Record<string, string | number | boolean>>;
+      };
 
 /** Options of `OpenWord.edit()`. */
 export interface EditOptions {
@@ -209,6 +242,14 @@ export interface EditOperationResult {
     readonly removed?: number;
     /** Address of the block an operation inserted or updated. */
     readonly id?: string;
+    /** List items created by `list.append`. */
+    readonly items?: number;
+    /** Whether the list appended by `list.append` is ordered. */
+    readonly ordered?: boolean;
+    /** First number requested by `list.append`; `null` when none was given or the list is unordered. */
+    readonly start?: number | null;
+    /** Language tag of the code block appended by `code.append`; `null` when none was given. */
+    readonly language?: string | null;
     /** Table index addressed by a table operation. */
     readonly table?: number;
     /** Row index addressed by a row operation. */

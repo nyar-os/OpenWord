@@ -20,11 +20,12 @@ graph LR
 ## What it does NOT do
 
 - **No `.docx` parser or writer implementation** — OOXML parsing, the style model, image handling and section math belong to the shared processing engine. This repository only binds it.
-- **No document algorithms** — style inheritance, layout, template rendering, conversion and review rules live upstream.
+- **No document algorithms** — style inheritance, layout, conversion and review rules live upstream.
 - **No fixture corpus** — golden documents, conformance fixtures and round-trip acceptance suites live downstream. This repository keeps minimal smoke-level tests only.
 - **No second document model** — the CLI, the studio and the agent skills consume the same document revision.
 - **No algorithms in the skills package** — it ships skill documents only.
-- **No macro, template, ODT or legacy Word input** — those formats are reported as unsupported. RTF is read by a small built-in reader as a declared text projection, never as a full word processor.
+- **No template engine** — `create --template` starts from an existing document and `template.fill` substitutes `{{key}}` placeholders only. Conditionals, loops, formulas and style merging are not implemented.
+- **No macro, ODT or legacy Word input** — those formats are reported as unsupported. RTF is read by a small built-in reader as a declared text projection, never as a full word processor.
 
 ## Usage
 
@@ -34,8 +35,11 @@ open-word create --out report.oword --title "Research review"
 open-word open report.docx
 open-word save report.docx --out report.oword
 open-word inspect report.docx --checks styles,tables,links
+open-word stats report.docx
 open-word find report.oword "revenue" --limit 5
 open-word replace report.oword --find "old name" --with "new name" --out report.oword --overwrite
+open-word template letter.docx --values '{"name":"Ada","amount":42}' --out letter-filled.oword --overwrite
+open-word create --template letter.docx --title "Renewal" --out letter.oword
 open-word edit report.oword --heading "Results" --level 2 --paragraph "Numbers held." --out report.oword --overwrite
 open-word export report.oword --format pdf --out report.pdf --overwrite
 open-word gui
@@ -78,6 +82,17 @@ and reports the revision it observed. PDF export is a projection and cannot be
 reopened for editing. Plain-text export uses `#` heading markers, `-` list items
 and tabbed table rows.
 
+`stats` reports the block, paragraph, heading-per-level, table and table-row
+counts of a document, plus word and character counts and a reading time at 200
+words per minute. Words are whitespace-separated and read from section titles,
+paragraphs, list items and table cells in document order.
+
+Template filling is placeholder substitution, not a template engine:
+`create --template` opens an existing document (any format `open` accepts) and
+applies the optional title/author, while `template.fill` replaces `{{key}}` and
+`{{ key }}` placeholders with string, number or boolean values. Unknown
+placeholders stay verbatim, and one fill batch advances the revision once.
+
 ## Repo layout
 
 ```
@@ -99,7 +114,8 @@ OpenWord/
 ```
 
 This repository ships the first usable slice: project containers, Word,
-Markdown/HTML/text import, partial RTF import, structural inspection, atomic
-edits (including table grids and block moves), text search and
-`docx`/`md`/`html`/`pdf`/`txt` export. Template rendering, macro handling and the
-remaining format family are reported as unsupported until they are wired.
+Markdown/HTML/text import, partial RTF import, structural inspection, document
+statistics, atomic edits (including table grids, block moves and `{{key}}`
+template filling), text search and `docx`/`md`/`html`/`pdf`/`txt` export. Macro
+handling and the remaining format family are reported as unsupported until they
+are wired.

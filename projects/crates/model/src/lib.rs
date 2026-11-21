@@ -13,6 +13,7 @@ mod inspect;
 mod merge;
 mod rtf;
 mod search;
+mod stats;
 mod store;
 mod summary;
 
@@ -125,15 +126,33 @@ pub fn capabilities() -> Value {
     })
 }
 
-/// Creates a document from `{ title?, author? }` and returns its handle and summary.
+/// Creates a document from `{ title?, author?, template? }` and returns its
+/// handle and summary.
+///
+/// A `template` is any path `open` can route; its blocks become the new
+/// document, and `title`/`author` are applied through the same metadata edit
+/// an explicit `metadata.set` uses.
 pub fn create(request: &Value) -> Result<Value, ServiceError> {
     let title = files::optional_string(request, "title")?;
     let author = files::optional_string(request, "author")?;
-    if files::optional_string(request, "template")?.is_some() {
-        return Err(ServiceError::new("format/unsupported", "starting a document from a template is not implemented yet"));
+    match files::optional_string(request, "template")? {
+        Some(template) => {
+            let mut entry = files::load(Path::new(&template))?;
+            if title.is_some() || author.is_some() {
+                edit::apply(
+                    &mut entry.graph,
+                    &json!({
+                        "operations": [{ "type": "metadata.set", "title": title, "author": author }],
+                    }),
+                )?;
+            }
+            Ok(store::register(entry))
+        }
+        None => {
+            let graph = files::create_graph(title, author);
+            Ok(store::register(store::Entry::new(graph, store::Source::Project)))
+        }
     }
-    let graph = files::create_graph(title, author);
-    Ok(store::register(store::Entry::new(graph, store::Source::Project)))
 }
 
 /// Opens a project, Word, Markdown, HTML, plain-text or PDF file.
@@ -157,6 +176,12 @@ pub fn inspect(handle: u64, checks: Option<Vec<String>>) -> Result<Value, Servic
 /// Returns the committed summary of one document handle.
 pub fn summary(handle: u64) -> Result<Value, ServiceError> {
     store::with(handle, |entry| summary::project(&entry.graph)).ok_or_else(|| document_not_found(handle))
+}
+
+/// Returns block, paragraph, heading, table, word and character counts for one
+/// document handle.
+pub fn stats(handle: u64) -> Result<Value, ServiceError> {
+    store::with(handle, |entry| stats::project(&entry.graph)).ok_or_else(|| document_not_found(handle))
 }
 
 /// Writes one export target from a document handle.

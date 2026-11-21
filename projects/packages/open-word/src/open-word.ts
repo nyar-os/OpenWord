@@ -15,6 +15,7 @@ import type {
     DocumentOpenInput,
     EditOperation,
     EditOptions,
+    EditReport,
     ExportFormat,
     ExportReport,
     FindHit,
@@ -27,6 +28,7 @@ import type {
     RedoResult,
     SaveOptions,
     SaveReport,
+    StatsReport,
     UndoResult,
 } from './types.js';
 
@@ -94,6 +96,12 @@ export class OpenWord {
         return service.save(this.requireHandle(), target, options.overwrite === true);
     }
 
+    /** Reports block, paragraph, heading, table, word and reading-time counts. */
+    async stats(): Promise<StatsReport> {
+        this.assertActive();
+        return service.stats(this.requireHandle());
+    }
+
     /** Exports the active document to one projection target. */
     async export(options: { readonly format: ExportFormat; readonly target: string; readonly overwrite?: boolean }): Promise<ExportReport> {
         this.assertActive();
@@ -106,20 +114,20 @@ export class OpenWord {
     }
 
     /**
-     * Applies one atomic edit batch and returns the new committed summary.
+     * Applies one atomic edit batch and returns the committed summary with one
+     * result per operation.
      *
      * `expectedRevision` rejects a batch written against an older revision with
      * `document/revision-conflict` before anything mutates.
      */
-    async edit(operations: readonly EditOperation[], options: EditOptions = {}): Promise<Document> {
+    async edit(operations: readonly EditOperation[], options: EditOptions = {}): Promise<EditReport> {
         this.assertActive();
         assertOperations(operations);
         const expectedRevision = options?.expectedRevision;
         if (expectedRevision !== undefined && (!Number.isInteger(expectedRevision) || expectedRevision < 0)) {
             throw new OpenWordError('session/argument-invalid', '`expectedRevision` must be a non-negative integer');
         }
-        const report = service.edit(this.requireHandle(), { operations, expectedRevision });
-        return report.document;
+        return service.edit(this.requireHandle(), { operations, expectedRevision });
     }
 
     /**

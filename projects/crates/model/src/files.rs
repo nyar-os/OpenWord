@@ -8,9 +8,9 @@ use std::{
     collections::HashSet,
     fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
 };
 
+use boost_fs::{OverwritePolicy, PublishOptions, publish_bytes_with_options};
 use document_formats::{FormatError, export, import};
 use document_ir::{Block, BreakKind, DocumentEnvelope, DocumentGraph, Inline, NodeId, TableCell};
 use serde_json::{Value, json};
@@ -26,8 +26,6 @@ pub(crate) struct SaveOutcome {
     pub(crate) revision: u64,
     pub(crate) bytes: usize,
 }
-
-static TEMP_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// Reads one optional string field from a request object.
 pub(crate) fn optional_string(request: &Value, key: &str) -> Result<Option<String>, ServiceError> {
@@ -265,24 +263,19 @@ fn write_atomically(path: &Path, bytes: &[u8], overwrite: bool) -> Result<(), Se
     if path.exists() && !overwrite {
         return Err(crate::invalid(format!("{} already exists; pass overwrite to replace it", path.display())));
     }
-    let temporary = temporary_path(path);
-    fs::write(&temporary, bytes).map_err(|error| {
-        let _ = fs::remove_file(&temporary);
-        ServiceError::new("format/invalid", format!("failed to write {}: {error}", temporary.display()))
-    })?;
-    if path.exists() {
-        fs::remove_file(path)
-            .map_err(|error| ServiceError::new("format/invalid", format!("failed to replace {}: {error}", path.display())))?;
-    }
-    fs::rename(&temporary, path).map_err(|error| {
-        let _ = fs::remove_file(&temporary);
-        ServiceError::new("format/invalid", format!("failed to write {}: {error}", path.display()))
-    })?;
-    Ok(())
+    let options = PublishOptions {
+        overwrite: if overwrite { OverwritePolicy::Replace } else { OverwritePolicy::RefuseExisting },
+        ..PublishOptions::default()
+    };
+    publish_bytes_with_options(publish_target(path), bytes, options)
+        .map_err(|error| ServiceError::new("format/invalid", format!("failed to write {}: {error}", path.display())))
 }
 
-fn temporary_path(path: &Path) -> PathBuf {
-    let name = path.file_name().and_then(|value| value.to_str()).unwrap_or("open-word");
-    let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    path.with_file_name(format!(".{name}.{}.{counter}.tmp", std::process::id()))
+/// Keeps a bare file name anchored to the working directory so the publisher
+/// always has a folder to stage in.
+fn publish_target(path: &Path) -> PathBuf {
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => path.to_path_buf(),
+        _ => PathBuf::from(".").join(path),
+    }
 }

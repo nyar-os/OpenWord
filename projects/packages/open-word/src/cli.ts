@@ -2,7 +2,7 @@
 /**
  * Command-line assembly only.
  *
- * Every command maps options onto one operation of `service.ts`; document
+ * Every command maps options onto one method of `new OpenWord()`; document
  * semantics, saving and export stay native. Help text and errors come from
  * `@wae/commander`, so the CLI does not grow its own parser.
  */
@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createCli } from '@wae/commander';
 
-import * as service from './service.js';
+import { OpenWord } from './open-word.js';
 import { runGui } from './gui.js';
 import type {
     Document,
@@ -23,12 +23,23 @@ import type {
     FindHit,
     InspectReport,
     SaveReport,
+    StatsReport,
 } from './types.js';
 import type { InspectCheck } from './types.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 const cli = createCli('open-word').locales(path.join(here, '..', 'locales')).intro('cli.intro');
+
+/** Runs `work` against one session and always releases its handles. */
+async function withSession<T>(work: (word: OpenWord) => Promise<T>): Promise<T> {
+    const word = new OpenWord();
+    try {
+        return await work(word);
+    } finally {
+        await word.dispose();
+    }
+}
 
 // Exported for contract audits that import the built entry to inspect the
 // command tree. Nothing runs until the file is executed as the program entry.
@@ -41,6 +52,11 @@ interface ParsedOptions {
 
 const text = (options: ParsedOptions, key: string): string | undefined =>
     typeof options[key] === 'string' ? (options[key] as string) : undefined;
+
+const texts = (options: ParsedOptions, key: string): string[] => {
+    const value = options[key];
+    return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+};
 
 const flag = (options: ParsedOptions, key: string): boolean => options[key] === true || options[key] === 'true';
 
@@ -81,6 +97,33 @@ function parseRows(value: string): string[][] | undefined {
     return rows;
 }
 
+function parseValues(value: string | undefined): Record<string, string | number | boolean> | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(value);
+    } catch {
+        return undefined;
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return undefined;
+    }
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    if (entries.length === 0) {
+        return undefined;
+    }
+    const values: Record<string, string | number | boolean> = {};
+    for (const [key, entry] of entries) {
+        if (typeof entry !== 'string' && typeof entry !== 'number' && typeof entry !== 'boolean') {
+            return undefined;
+        }
+        values[key] = entry;
+    }
+    return values;
+}
+
 function describeCapabilities(matrix: DocumentCapabilities): string {
     const formats = Object.entries(matrix.formats)
         .filter(([, entry]) => entry.import === 'supported')
@@ -115,6 +158,18 @@ function describeExport(report: ExportReport): string {
     return `export ${report.format} -> ${report.target} revision=${report.revision} editable=${report.editable} losses=${report.losses.length}`;
 }
 
+function describeStats(report: StatsReport): string {
+    const headings = Object.entries(report.headings)
+        .filter(([, count]) => count > 0)
+        .map(([level, count]) => `h${level}=${count}`)
+        .join(', ');
+    return [
+        `revision=${report.revision} blocks=${report.blocks} paragraphs=${report.paragraphs} tables=${report.tables} rows=${report.tableRows}`,
+        `headings: ${headings.length > 0 ? headings : 'none'}`,
+        `words=${report.words} characters=${report.characters} (${report.charactersWithoutWhitespace} without spaces) reading=${report.readingMinutes} min`,
+    ].join('\n');
+}
+
 function parseSteps(options: ParsedOptions): number | undefined | null {
     const value = text(options, 'steps');
     if (value === undefined) {
@@ -124,8 +179,8 @@ function parseSteps(options: ParsedOptions): number | undefined | null {
     return steps !== undefined && steps > 0 ? steps : null;
 }
 
-function persistProject(file: string, handle: number): SaveReport | undefined {
-    return path.extname(file).toLowerCase() === '.oword' ? service.save(handle, file, true) : undefined;
+async function persistProject(file: string, word: OpenWord): Promise<SaveReport | undefined> {
+    return path.extname(file).toLowerCase() === '.oword' ? word.save(file, { overwrite: true }) : undefined;
 }
 
 function describeHistory(saved: SaveReport | undefined): string {
@@ -145,7 +200,7 @@ function describeHits(hits: readonly FindHit[]): string {
 }
 
 cli.command('capabilities', 'cli.cmd.capabilities').actionCtx(async (_options, _args, ctx) => {
-    const matrix = service.capabilities();
+    const matrix = await withSession((word) => word.capabilities());
     ctx.emitResult(matrix, describeCapabilities(matrix));
     return 0;
 });
@@ -162,17 +217,12 @@ cli
             ctx.fail('open-word.cli.out-required', { message: '`--out <file>` is required' });
             return 2;
         }
-        const created = service.create({ title: text(options, 'title'), template: text(options, 'template') });
-        try {
-            const report = service.save(created.handle, out, flag(options, 'overwrite'));
-            ctx.emitResult(
-                { ...report, document: created.document },
-                `created ${out} revision=${report.revision}`,
-            );
-            return 0;
-        } finally {
-            service.close(created.handle);
-        }
+        await withSession(async (word) => {
+            const document = await word.create({ title: text(options, 'title'), template: text(options, 'template') });
+            const report = await word.save(out, { overwrite: flag(options, 'overwrite') });
+            ctx.emitResult({ ...report, document }, `created ${out} revision=${report.revision}`);
+        });
+        return 0;
     });
 
 cli
@@ -183,13 +233,11 @@ cli
             ctx.fail('open-word.cli.file-required', { message: 'a document file is required' });
             return 2;
         }
-        const opened = service.open(file);
-        try {
-            ctx.emitResult(opened.document, describeDocument(opened.document));
-            return 0;
-        } finally {
-            service.close(opened.handle);
-        }
+        await withSession(async (word) => {
+            const document = await word.open({ path: file });
+            ctx.emitResult(document, describeDocument(document));
+        });
+        return 0;
     });
 
 cli
@@ -207,14 +255,12 @@ cli
             ctx.fail('open-word.cli.out-required', { message: '`--out <file>` is required' });
             return 2;
         }
-        const opened = service.open(file);
-        try {
-            const report = service.save(opened.handle, out, flag(options, 'overwrite'));
+        await withSession(async (word) => {
+            await word.open({ path: file });
+            const report = await word.save(out, { overwrite: flag(options, 'overwrite') });
             ctx.emitResult(report, `saved ${out} revision=${report.revision} bytes=${report.bytes}`);
-            return 0;
-        } finally {
-            service.close(opened.handle);
-        }
+        });
+        return 0;
     });
 
 cli
@@ -230,14 +276,13 @@ cli
             ?.split(',')
             .map((name) => name.trim())
             .filter((name) => name.length > 0) as InspectCheck[] | undefined;
-        const opened = service.open(file);
-        try {
-            const report = service.inspect(opened.handle, checks);
+        let passed = false;
+        await withSession(async (word) => {
+            const report = await word.inspect({ path: file }, { checks });
             ctx.emitResult(report, describeReport(report));
-            return report.passed ? 0 : 1;
-        } finally {
-            service.close(opened.handle);
-        }
+            passed = report.passed;
+        });
+        return passed ? 0 : 1;
     });
 
 cli
@@ -256,21 +301,38 @@ cli
             ctx.fail('open-word.cli.find-limit', { message: '`--limit <count>` must be a positive integer' });
             return 2;
         }
-        const opened = service.open(file);
-        try {
-            const hits = service.find(opened.handle, query, limit);
+        await withSession(async (word) => {
+            const hits = await word.open({ path: file }).then(() => word.find(query, { limit }));
             ctx.emitResult(hits, describeHits(hits));
-            return 0;
-        } finally {
-            service.close(opened.handle);
-        }
+        });
+        return 0;
     });
+
+cli.command('stats', 'cli.cmd.stats').actionCtx(async (options, _args, ctx) => {
+    const file = input(options);
+    if (file === undefined) {
+        ctx.fail('open-word.cli.file-required', { message: 'a document file is required' });
+        return 2;
+    }
+    await withSession(async (word) => {
+        await word.open({ path: file });
+        const report = await word.stats();
+        ctx.emitResult(report, describeStats(report));
+    });
+    return 0;
+});
 
 cli
     .command('edit', 'cli.cmd.edit')
     .option('--paragraph <text>', 'cli.opt.paragraph')
     .option('--heading <text>', 'cli.opt.heading')
     .option('--level <level>', 'cli.opt.level')
+    .option('--bullet <text>...', 'cli.opt.bullet')
+    .option('--numbered <text>...', 'cli.opt.numbered')
+    .option('--numbered-start <n>', 'cli.opt.numberedStart')
+    .option('--quote <text>', 'cli.opt.quote')
+    .option('--code <text>', 'cli.opt.code')
+    .option('--code-lang <lang>', 'cli.opt.codeLang')
     .option('--table <json>', 'cli.opt.table')
     .option('--title <title>', 'cli.opt.title')
     .option('--author <author>', 'cli.opt.author')
@@ -298,6 +360,42 @@ cli
             }
             operations.push({ type: 'heading.append', level, text: heading });
         }
+        const bullets = texts(options, 'bullet');
+        if (bullets.length > 0) {
+            operations.push({ type: 'list.append', ordered: false, items: bullets });
+        }
+        const numbered = texts(options, 'numbered');
+        const numberedStartText = text(options, 'numbered-start');
+        const numberedStart = numberedStartText === undefined ? undefined : parseInteger(numberedStartText);
+        if (numberedStartText !== undefined && (numberedStart === undefined || numberedStart < 1)) {
+            ctx.fail('open-word.cli.edit-numbered-start', { message: '`--numbered-start <n>` must be a positive integer' });
+            return 2;
+        }
+        if (numberedStartText !== undefined && numbered.length === 0) {
+            ctx.fail('open-word.cli.edit-numbered-start', { message: '`--numbered-start <n>` requires `--numbered`' });
+            return 2;
+        }
+        if (numbered.length > 0) {
+            operations.push({
+                type: 'list.append',
+                ordered: true,
+                items: numbered,
+                ...(numberedStart === undefined ? {} : { start: numberedStart }),
+            });
+        }
+        const quote = text(options, 'quote');
+        if (quote !== undefined) {
+            operations.push({ type: 'quote.append', text: quote });
+        }
+        const code = text(options, 'code');
+        const codeLang = text(options, 'code-lang');
+        if (codeLang !== undefined && code === undefined) {
+            ctx.fail('open-word.cli.edit-code-lang', { message: '`--code-lang <lang>` requires `--code`' });
+            return 2;
+        }
+        if (code !== undefined) {
+            operations.push({ type: 'code.append', text: code, ...(codeLang === undefined ? {} : { language: codeLang }) });
+        }
         const table = text(options, 'table');
         if (table !== undefined) {
             const rows = parseRows(table);
@@ -313,7 +411,10 @@ cli
             operations.push({ type: 'metadata.set', title, author });
         }
         if (operations.length === 0) {
-            ctx.fail('open-word.cli.edit-args', { message: 'pass at least one of `--paragraph`, `--heading`, `--table`, `--title` or `--author`' });
+            ctx.fail('open-word.cli.edit-args', {
+                message:
+                    'pass at least one of `--paragraph`, `--heading`, `--bullet`, `--numbered`, `--quote`, `--code`, `--table`, `--title` or `--author`',
+            });
             return 2;
         }
 
@@ -324,21 +425,19 @@ cli
             return 2;
         }
 
-        const opened = service.open(file);
-        try {
-            const report = service.edit(opened.handle, { operations, expectedRevision });
+        await withSession(async (word) => {
+            await word.open({ path: file });
+            const report = await word.edit(operations, { expectedRevision });
             const out = text(options, 'out');
             if (out !== undefined) {
-                const saved = service.save(opened.handle, out, flag(options, 'overwrite'));
+                const saved = await word.save(out, { overwrite: flag(options, 'overwrite') });
                 ctx.emitResult({ ...report, saved }, `${describeDocument(report.document)}\n  saved: ${saved.path} (${saved.bytes} bytes)`);
             }
             else {
                 ctx.emitResult(report, describeDocument(report.document));
             }
-            return 0;
-        } finally {
-            service.close(opened.handle);
-        }
+        });
+        return 0;
     });
 
 cli
@@ -359,15 +458,13 @@ cli
             ctx.fail('open-word.cli.replace-args', { message: '`--find <text>` and `--with <text>` are required' });
             return 2;
         }
-        const opened = service.open(file);
-        try {
-            const report = service.edit(opened.handle, {
-                operations: [{ type: 'document.replaceText', find, replace: replacement }],
-            });
+        await withSession(async (word) => {
+            await word.open({ path: file });
+            const report = await word.edit([{ type: 'document.replaceText', find, replace: replacement }]);
             const replaced = report.results[0]?.replaced ?? 0;
             const out = text(options, 'out');
             if (out !== undefined) {
-                const saved = service.save(opened.handle, out, flag(options, 'overwrite'));
+                const saved = await word.save(out, { overwrite: flag(options, 'overwrite') });
                 ctx.emitResult(
                     { ...report, saved },
                     `${describeDocument(report.document)}\n  replaced: ${replaced}\n  saved: ${saved.path} (${saved.bytes} bytes)`,
@@ -376,10 +473,44 @@ cli
             else {
                 ctx.emitResult(report, `${describeDocument(report.document)}\n  replaced: ${replaced}`);
             }
-            return 0;
-        } finally {
-            service.close(opened.handle);
+        });
+        return 0;
+    });
+
+cli
+    .command('template', 'cli.cmd.template')
+    .option('--values <json>', 'cli.opt.values')
+    .option('--out <file>', 'cli.opt.out')
+    .option('--overwrite', 'cli.opt.overwrite')
+    .actionCtx(async (options, _args, ctx) => {
+        const file = input(options);
+        if (file === undefined) {
+            ctx.fail('open-word.cli.file-required', { message: 'a document file is required' });
+            return 2;
         }
+        const values = parseValues(text(options, 'values'));
+        if (values === undefined) {
+            ctx.fail('open-word.cli.template-values', {
+                message: '`--values <json>` must be a non-empty JSON object of string, number or boolean values',
+            });
+            return 2;
+        }
+        const out = text(options, 'out');
+        if (out === undefined) {
+            ctx.fail('open-word.cli.out-required', { message: '`--out <file>` is required' });
+            return 2;
+        }
+        await withSession(async (word) => {
+            await word.open({ path: file });
+            const report = await word.edit([{ type: 'template.fill', values }]);
+            const replaced = report.results[0]?.replaced ?? 0;
+            const saved = await word.save(out, { overwrite: flag(options, 'overwrite') });
+            ctx.emitResult(
+                { ...report, saved },
+                `${describeDocument(report.document)}\n  replaced: ${replaced}\n  saved: ${saved.path} (${saved.bytes} bytes)`,
+            );
+        });
+        return 0;
     });
 
 for (const action of ['undo', 'redo'] as const) {
@@ -397,10 +528,10 @@ for (const action of ['undo', 'redo'] as const) {
                 ctx.fail('open-word.cli.history-steps', { message: '`--steps <count>` must be a positive integer' });
                 return 2;
             }
-            const opened = service.open(file);
-            try {
-                const result = action === 'undo' ? service.undo(opened.handle, steps) : service.redo(opened.handle, steps);
-                const saved = persistProject(file, opened.handle);
+            await withSession(async (word) => {
+                await word.open({ path: file });
+                const result = action === 'undo' ? await word.undo({ steps }) : await word.redo({ steps });
+                const saved = await persistProject(file, word);
                 const count = 'undone' in result ? result.undone : result.redone;
                 const availability =
                     'undone' in result
@@ -410,10 +541,8 @@ for (const action of ['undo', 'redo'] as const) {
                     { ...result, saved },
                     `${action} ${count} step(s) -> revision=${result.revision} ${availability}\n${describeDocument(result.document)}${describeHistory(saved)}`,
                 );
-                return 0;
-            } finally {
-                service.close(opened.handle);
-            }
+            });
+            return 0;
         });
 }
 
@@ -424,18 +553,16 @@ cli.command('merge', 'cli.cmd.merge').actionCtx(async (options, _args, ctx) => {
         ctx.fail('open-word.cli.merge-args', { message: 'a document file and another document are required' });
         return 2;
     }
-    const opened = service.open(file);
-    try {
-        const report = service.merge(opened.handle, other);
-        const saved = persistProject(file, opened.handle);
+    await withSession(async (word) => {
+        await word.open({ path: file });
+        const report = await word.merge(other);
+        const saved = await persistProject(file, word);
         ctx.emitResult(
             { ...report, saved },
             `merged ${report.blocksAdded} block(s) from ${other}\n${describeDocument(report.summary)}\n  losses: ${report.losses.length}${describeHistory(saved)}`,
         );
-        return 0;
-    } finally {
-        service.close(opened.handle);
-    }
+    });
+    return 0;
 });
 
 cli
@@ -455,14 +582,16 @@ cli
             ctx.fail('open-word.cli.export-args', { message: '`--format <format>` and `--out <file>` are required' });
             return 2;
         }
-        const opened = service.open(file);
-        try {
-            const report = service.exportDocument(opened.handle, format as ExportFormat, out, flag(options, 'overwrite'));
+        await withSession(async (word) => {
+            await word.open({ path: file });
+            const report = await word.export({
+                format: format as ExportFormat,
+                target: out,
+                overwrite: flag(options, 'overwrite'),
+            });
             ctx.emitResult(report, describeExport(report));
-            return 0;
-        } finally {
-            service.close(opened.handle);
-        }
+        });
+        return 0;
     });
 
 cli.command('gui', 'cli.cmd.gui').actionCtx(async (_options, _args, ctx) => {

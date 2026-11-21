@@ -6,7 +6,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use open_word_document::{close, create, edit, export, find, open, save, summary};
+use open_word_document::{close, create, edit, export, find, open, save, stats, summary};
 use serde_json::{Value, json};
 
 const FIXTURE: &str = "# Overview
@@ -580,6 +580,231 @@ fn block_move_keeps_section_subtrees_and_rejects_cycles() {
     assert_eq!(promoted["document"]["paragraphs"][0]["sectionIndex"], json!(-1));
     assert_eq!(promoted["document"]["sections"][0]["title"], json!("Beta"));
     assert_eq!(revision_of(&promoted), before + 2);
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn template_fill_replaces_known_placeholders_in_one_revision() {
+    let created = create(&json!({ "title": "Letter" })).expect("create");
+    let handle = handle_of(&created);
+    edit(
+        handle,
+        &json!({
+            "operations": [
+                { "type": "heading.append", "level": 1, "text": "Dear {{ name }}" },
+                { "type": "paragraph.append", "text": "{{name}} owes {{amount}} {{ note }} and {{missing}}." },
+                { "type": "table.append", "rows": [["Item", "{{item}}"], ["{{amount}}", "1"]] },
+            ],
+        }),
+    )
+    .expect("seed placeholders");
+    let before = revision_of(&summary(handle).expect("summary"));
+
+    let filled = edit(
+        handle,
+        &json!({
+            "operations": [{ "type": "template.fill", "values": { "name": "Ada", "amount": 42, "note": true } }],
+        }),
+    )
+    .expect("fill template");
+    assert_eq!(filled["results"][0]["replaced"], json!(5));
+    assert_eq!(revision_of(&filled), before + 1);
+    assert_eq!(filled["document"]["sections"][0]["title"], json!("Dear Ada"));
+    let text = summary_text(&filled["document"]);
+    assert!(text.contains("Ada owes 42 true and {{missing}}."), "unknown placeholders must stay: {text}");
+    assert!(text.contains("42"), "table cell placeholder must be replaced: {text}");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    for invalid in [
+        json!({ "operations": [{ "type": "template.fill", "values": {} }] }),
+        json!({ "operations": [{ "type": "template.fill", "values": { "name": ["Ada"] } }] }),
+        json!({ "operations": [{ "type": "template.fill", "values": "Ada" }] }),
+    ] {
+        let error = edit(handle, &invalid).expect_err("invalid values must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn list_and_quote_appends_extend_counts_and_export_markdown() {
+    let workspace = Workspace::new("listquote");
+    let created = create(&json!({ "title": "Structures" })).expect("create");
+    let handle = handle_of(&created);
+    let before = stats(handle).expect("stats");
+
+    let bullets = edit(handle, &json!({ "operations": [{ "type": "list.append", "items": ["alpha", "beta"] }] }))
+        .expect("append unordered list");
+    assert_eq!(bullets["results"][0]["type"], json!("list.append"));
+    assert_eq!(bullets["results"][0]["items"], json!(2));
+    assert_eq!(bullets["results"][0]["ordered"], json!(false));
+    assert_eq!(revision_of(&bullets), 1);
+    let after_bullets = stats(handle).expect("stats");
+    assert_eq!(after_bullets["blocks"].as_u64().unwrap(), before["blocks"].as_u64().unwrap() + 1);
+    assert_eq!(after_bullets["words"].as_u64().unwrap(), before["words"].as_u64().unwrap() + 2);
+
+    let numbered =
+        edit(handle, &json!({ "operations": [{ "type": "list.append", "ordered": true, "items": ["one", "two"] }] }))
+            .expect("append ordered list");
+    assert_eq!(numbered["results"][0]["items"], json!(2));
+    assert_eq!(numbered["results"][0]["ordered"], json!(true));
+    let after_numbered = stats(handle).expect("stats");
+    assert_eq!(after_numbered["blocks"].as_u64().unwrap(), after_bullets["blocks"].as_u64().unwrap() + 1);
+    assert_eq!(after_numbered["words"].as_u64().unwrap(), after_bullets["words"].as_u64().unwrap() + 2);
+
+    let quoted = edit(handle, &json!({ "operations": [{ "type": "quote.append", "text": "quoted line" }] }))
+        .expect("append quote");
+    assert_eq!(quoted["results"][0]["type"], json!("quote.append"));
+    let after_quote = stats(handle).expect("stats");
+    assert_eq!(after_quote["blocks"].as_u64().unwrap(), after_numbered["blocks"].as_u64().unwrap() + 2);
+    assert_eq!(after_quote["paragraphs"].as_u64().unwrap(), after_numbered["paragraphs"].as_u64().unwrap() + 1);
+    assert_eq!(summary_text(&quoted["document"]), "quoted line");
+
+    let markdown = workspace.path("structures.md");
+    export(handle, "md", &markdown, false).expect("export markdown");
+    let text = fs::read_to_string(&markdown).expect("read markdown");
+    assert!(text.contains("- alpha"), "unordered list: {text}");
+    assert!(text.contains("- beta"), "unordered list: {text}");
+    assert!(text.contains("1. one"), "ordered list: {text}");
+    assert!(text.contains("2. two"), "ordered list: {text}");
+    assert!(text.contains("> quoted line"), "quote: {text}");
+
+    let before_error = revision_of(&summary(handle).expect("summary"));
+    let error = edit(handle, &json!({ "operations": [{ "type": "list.append", "items": [] }] }))
+        .expect_err("empty items must fail");
+    assert_eq!(error.code, "session/argument-invalid");
+    let error = edit(handle, &json!({ "operations": [{ "type": "quote.append", "text": "" }] }))
+        .expect_err("empty quote text must fail");
+    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before_error);
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn code_append_adds_a_fenced_block_and_counts_it() {
+    let workspace = Workspace::new("code");
+    let created = create(&json!({ "title": "Code" })).expect("create");
+    let handle = handle_of(&created);
+    let before = stats(handle).expect("stats");
+
+    let appended = edit(
+        handle,
+        &json!({
+            "operations": [
+                { "type": "code.append", "text": "fn main() {\n    println!(\"hi\");\n}", "language": "rust" },
+            ],
+        }),
+    )
+    .expect("append code");
+    assert_eq!(appended["results"][0]["type"], json!("code.append"));
+    assert_eq!(appended["results"][0]["language"], json!("rust"));
+    assert_eq!(revision_of(&appended), 1);
+
+    let after = stats(handle).expect("stats");
+    assert_eq!(after["blocks"].as_u64().unwrap(), before["blocks"].as_u64().unwrap() + 1);
+    assert_eq!(after["paragraphs"], before["paragraphs"]);
+    assert!(after["words"].as_u64().unwrap() > before["words"].as_u64().unwrap(), "code words: {after}");
+
+    let markdown = workspace.path("code.md");
+    export(handle, "md", &markdown, false).expect("export markdown");
+    let text = fs::read_to_string(&markdown).expect("read markdown");
+    assert!(text.contains("```rust"), "language fence: {text}");
+    assert!(text.contains("fn main()"), "code source: {text}");
+
+    let untagged = edit(handle, &json!({ "operations": [{ "type": "code.append", "text": "plain text" }] }))
+        .expect("append untagged code");
+    assert_eq!(untagged["results"][0]["language"], Value::Null);
+    let plain = workspace.path("code-plain.md");
+    export(handle, "md", &plain, false).expect("export untagged markdown");
+    let text = fs::read_to_string(&plain).expect("read untagged markdown");
+    assert!(text.contains("plain text"), "code source: {text}");
+
+    let before_error = revision_of(&summary(handle).expect("summary"));
+    for operation in [
+        json!({ "type": "code.append", "text": "" }),
+        json!({ "type": "code.append" }),
+        json!({ "type": "code.append", "text": "x", "language": 3 }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid code append must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before_error);
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn ordered_list_start_numbers_items_from_the_requested_value() {
+    let workspace = Workspace::new("liststart");
+    let created = create(&json!({ "title": "Numbering" })).expect("create");
+    let handle = handle_of(&created);
+
+    let numbered = edit(
+        handle,
+        &json!({
+            "operations": [{ "type": "list.append", "ordered": true, "items": ["one", "two"], "start": 3 }],
+        }),
+    )
+    .expect("append list with start");
+    assert_eq!(numbered["results"][0]["start"], json!(3));
+    let started = workspace.path("start.md");
+    export(handle, "md", &started, false).expect("export markdown");
+    let text = fs::read_to_string(&started).expect("read markdown");
+    assert!(text.contains("3. one"), "start number must be used: {text}");
+    assert!(text.contains("4. two"), "numbers must increase: {text}");
+
+    let defaulted =
+        edit(handle, &json!({ "operations": [{ "type": "list.append", "ordered": true, "items": ["one", "two"] }] }))
+            .expect("append list without start");
+    assert_eq!(defaulted["results"][0]["start"], Value::Null);
+    let default = workspace.path("default.md");
+    export(handle, "md", &default, false).expect("export markdown");
+    let text = fs::read_to_string(&default).expect("read markdown");
+    assert!(text.contains("1. one"), "default numbering: {text}");
+    assert!(text.contains("2. two"), "default numbering: {text}");
+
+    let bullets =
+        edit(handle, &json!({ "operations": [{ "type": "list.append", "items": ["one"] }] })).expect("append bullets");
+    assert_eq!(bullets["results"][0]["start"], Value::Null);
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    for operation in [
+        json!({ "type": "list.append", "ordered": true, "items": ["one"], "start": 0 }),
+        json!({ "type": "list.append", "items": ["one"], "start": 2 }),
+        json!({ "type": "list.append", "ordered": true, "items": ["one"], "start": "2" }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid start must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn create_opens_a_template_and_stats_reports_the_document() {
+    let workspace = Workspace::new("stats");
+    let template = workspace.markdown(
+        "template.md",
+        "# Overview\n\nHello world.\n\n- alpha beta\n- gamma\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n",
+    );
+    let created =
+        create(&json!({ "template": template.display().to_string(), "title": "Filled" })).expect("create from template");
+    assert_eq!(created["document"]["title"], json!("Filled"));
+    let handle = handle_of(&created);
+
+    let report = stats(handle).expect("stats");
+    assert_eq!(report["headings"]["1"], json!(1));
+    assert_eq!(report["tables"], json!(1));
+    assert_eq!(report["tableRows"], json!(2));
+    assert!(report["paragraphs"].as_u64().unwrap() >= 3, "paragraphs: {report}");
+    assert_eq!(report["words"], json!(10));
+    assert!(report["characters"].as_u64().unwrap() > report["charactersWithoutWhitespace"].as_u64().unwrap());
+    assert_eq!(report["readingMinutes"], json!(1));
 
     close(handle).expect("close");
 }

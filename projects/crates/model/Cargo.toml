@@ -9,6 +9,7 @@ repository.workspace = true
 description = "Document model and operations for OpenWord"
 
 [dependencies]
+boost-fs = { workspace = true }
 document-formats = { workspace = true }
 document-ir = { workspace = true }
 serde = { workspace = true }

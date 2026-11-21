@@ -21,9 +21,13 @@ import type {
     FindOptions,
     InspectOptions,
     InspectReport,
+    MergeOptions,
+    MergeResult,
     OpenWordOptions,
+    RedoResult,
     SaveOptions,
     SaveReport,
+    UndoResult,
 } from './types.js';
 
 /** Authoring session. One instance manages one declared document surface. */
@@ -118,6 +122,45 @@ export class OpenWord {
         return report.document;
     }
 
+    /**
+     * Undoes the last `steps` committed mutations (default 1).
+     *
+     * History is process-local and capped at 50 mutations; asking for more steps
+     * than are retained rejects with `session/argument-invalid` and changes
+     * nothing. A successful undo bumps the revision once.
+     */
+    async undo(options: { readonly steps?: number } = {}): Promise<UndoResult> {
+        this.assertActive();
+        const steps = options?.steps;
+        assertSteps(steps);
+        return service.undo(this.requireHandle(), steps);
+    }
+
+    /** Replays undone mutations, most recent first. */
+    async redo(options: { readonly steps?: number } = {}): Promise<RedoResult> {
+        this.assertActive();
+        const steps = options?.steps;
+        assertSteps(steps);
+        return service.redo(this.requireHandle(), steps);
+    }
+
+    /**
+     * Appends another document's blocks to the active document.
+     *
+     * The donor is opened through the same routing as `open()`, so `.docx`,
+     * `.md`, `.html`, `.rtf`, `.txt` and `.oword` are accepted; merging the
+     * file the document was opened from is allowed.
+     */
+    async merge(path: string, options: MergeOptions = {}): Promise<MergeResult> {
+        this.assertActive();
+        assertPath(path);
+        const mode: string = options?.mode ?? 'append';
+        if (mode !== 'append') {
+            throw new OpenWordError('object/unsupported', `merge mode \`${mode}\` is not supported`);
+        }
+        return service.merge(this.requireHandle(), path, mode);
+    }
+
     /** Inspects an input through a transient handle that is always released. */
     async inspect(input: DocumentOpenInput, options?: InspectOptions): Promise<InspectReport> {
         this.assertActive();
@@ -183,6 +226,12 @@ function assertPath(value: unknown): asserts value is string {
 function assertOptionalString(value: unknown, field: string): void {
     if (value !== undefined && typeof value !== 'string') {
         throw new OpenWordError('session/argument-invalid', `\`${field}\` must be a string when present`);
+    }
+}
+
+function assertSteps(value: unknown): void {
+    if (value !== undefined && (!Number.isInteger(value) || (value as number) < 1)) {
+        throw new OpenWordError('session/argument-invalid', '`steps` must be a positive integer');
     }
 }
 

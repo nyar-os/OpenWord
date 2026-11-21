@@ -14,7 +14,16 @@ import { createCli } from '@wae/commander';
 
 import * as service from './service.js';
 import { runGui } from './gui.js';
-import type { Document, DocumentCapabilities, EditOperation, ExportFormat, ExportReport, FindHit, InspectReport } from './types.js';
+import type {
+    Document,
+    DocumentCapabilities,
+    EditOperation,
+    ExportFormat,
+    ExportReport,
+    FindHit,
+    InspectReport,
+    SaveReport,
+} from './types.js';
 import type { InspectCheck } from './types.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -104,6 +113,25 @@ function describeReport(report: InspectReport): string {
 
 function describeExport(report: ExportReport): string {
     return `export ${report.format} -> ${report.target} revision=${report.revision} editable=${report.editable} losses=${report.losses.length}`;
+}
+
+function parseSteps(options: ParsedOptions): number | undefined | null {
+    const value = text(options, 'steps');
+    if (value === undefined) {
+        return undefined;
+    }
+    const steps = parseInteger(value);
+    return steps !== undefined && steps > 0 ? steps : null;
+}
+
+function persistProject(file: string, handle: number): SaveReport | undefined {
+    return path.extname(file).toLowerCase() === '.oword' ? service.save(handle, file, true) : undefined;
+}
+
+function describeHistory(saved: SaveReport | undefined): string {
+    return saved === undefined
+        ? '\n  history is session-local: a freshly opened document has an empty history'
+        : `\n  saved: ${saved.path} (${saved.bytes} bytes)`;
 }
 
 function describeHits(hits: readonly FindHit[]): string {
@@ -354,9 +382,65 @@ cli
         }
     });
 
+for (const action of ['undo', 'redo'] as const) {
+    cli
+        .command(action, `cli.cmd.${action}`)
+        .option('--steps <count>', 'cli.opt.steps')
+        .actionCtx(async (options, _args, ctx) => {
+            const file = input(options);
+            if (file === undefined) {
+                ctx.fail('open-word.cli.file-required', { message: 'a document file is required' });
+                return 2;
+            }
+            const steps = parseSteps(options);
+            if (steps === null) {
+                ctx.fail('open-word.cli.history-steps', { message: '`--steps <count>` must be a positive integer' });
+                return 2;
+            }
+            const opened = service.open(file);
+            try {
+                const result = action === 'undo' ? service.undo(opened.handle, steps) : service.redo(opened.handle, steps);
+                const saved = persistProject(file, opened.handle);
+                const count = 'undone' in result ? result.undone : result.redone;
+                const availability =
+                    'undone' in result
+                        ? `redoAvailable=${result.redoAvailable}`
+                        : `undoAvailable=${result.undoAvailable}`;
+                ctx.emitResult(
+                    { ...result, saved },
+                    `${action} ${count} step(s) -> revision=${result.revision} ${availability}\n${describeDocument(result.document)}${describeHistory(saved)}`,
+                );
+                return 0;
+            } finally {
+                service.close(opened.handle);
+            }
+        });
+}
+
+cli.command('merge', 'cli.cmd.merge').actionCtx(async (options, _args, ctx) => {
+    const file = input(options);
+    const other = options._?.[1];
+    if (file === undefined || other === undefined || other.length === 0) {
+        ctx.fail('open-word.cli.merge-args', { message: 'a document file and another document are required' });
+        return 2;
+    }
+    const opened = service.open(file);
+    try {
+        const report = service.merge(opened.handle, other);
+        const saved = persistProject(file, opened.handle);
+        ctx.emitResult(
+            { ...report, saved },
+            `merged ${report.blocksAdded} block(s) from ${other}\n${describeDocument(report.summary)}\n  losses: ${report.losses.length}${describeHistory(saved)}`,
+        );
+        return 0;
+    } finally {
+        service.close(opened.handle);
+    }
+});
+
 cli
     .command('export', 'cli.cmd.export')
-    .option('--format <format>', 'cli.opt.format', { enum: ['docx', 'dotx', 'pdf', 'html', 'md', 'txt'] })
+    .option('--format <format>', 'cli.opt.format', { enum: ['docx', 'dotx', 'pdf', 'html', 'md', 'txt', 'rtf'] })
     .option('--out <file>', 'cli.opt.out')
     .option('--overwrite', 'cli.opt.overwrite')
     .actionCtx(async (options, _args, ctx) => {

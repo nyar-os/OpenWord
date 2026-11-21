@@ -154,6 +154,40 @@ test('find needs an open document', async () => {
     await word.dispose();
 });
 
+test('undo, redo and merge validate arguments before the engine is reached', async () => {
+    const word = new OpenWord();
+    const invalid: (() => Promise<unknown>)[] = [
+        () => word.undo({ steps: 0 }),
+        () => word.undo({ steps: -1 }),
+        () => word.redo({ steps: 1.5 }),
+        () => word.merge(''),
+        () => word.merge(42 as unknown as string),
+    ];
+    for (const call of invalid) {
+        await assert.rejects(
+            call,
+            (error: unknown) => error instanceof OpenWordError && error.code === 'session/argument-invalid',
+        );
+    }
+    await word.dispose();
+});
+
+test('undo, redo and merge need an open document', async () => {
+    const word = new OpenWord();
+    const calls: (() => Promise<unknown>)[] = [
+        () => word.undo(),
+        () => word.redo({ steps: 2 }),
+        () => word.merge('other.md'),
+    ];
+    for (const call of calls) {
+        await assert.rejects(
+            call,
+            (error: unknown) => error instanceof OpenWordError && error.code === 'document/not-found',
+        );
+    }
+    await word.dispose();
+});
+
 test('format registry classifies the document format family', () => {
     const expected = ['docx', 'docm', 'dotx', 'dotm', 'doc', 'rtf', 'odt', 'txt', 'md', 'html', 'pdf'];
     assert.deepEqual([...documentFormats].sort(), [...expected].sort());

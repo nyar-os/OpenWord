@@ -21,7 +21,10 @@ import type {
     ImportReport,
     InspectCheck,
     InspectReport,
+    MergeResult,
+    RedoResult,
     SaveReport,
+    UndoResult,
 } from './types.js';
 
 const knownCodes = new Set<string>(errorCodes);
@@ -111,6 +114,25 @@ export function find(handle: number, query: string, limit?: number): readonly Fi
 /** Applies one edit batch and returns the new committed summary. */
 export function edit(handle: number, request: EditRequest): EditReport {
     return decode<EditReport>(() => binding('edit').document_edit(handle, JSON.stringify(request)));
+}
+
+/** Undoes committed edits on a document handle. */
+export function undo(handle: number, steps?: number): UndoResult {
+    return decode<UndoResult>(() =>
+        steps === undefined ? binding('undo').document_undo(handle) : binding('undo').document_undo(handle, steps),
+    );
+}
+
+/** Replays undone edits on a document handle. */
+export function redo(handle: number, steps?: number): RedoResult {
+    return decode<RedoResult>(() =>
+        steps === undefined ? binding('redo').document_redo(handle) : binding('redo').document_redo(handle, steps),
+    );
+}
+
+/** Appends another document's blocks to a document handle. */
+export function merge(handle: number, path: string, mode = 'append'): MergeResult {
+    return decode<MergeResult>(() => binding('merge').document_merge(handle, path, mode));
 }
 
 /** Writes one export target from a document handle. */

@@ -21,6 +21,9 @@ export interface NativeBinding {
     document_summary(handle: number): string;
     document_find(handle: number, query: string, limit?: number): string;
     document_edit(handle: number, requestJson: string): string;
+    document_undo(handle: number, steps?: number): string;
+    document_redo(handle: number, steps?: number): string;
+    document_merge(handle: number, path: string, mode?: string): string;
     document_export(handle: number, format: string, target: string, overwrite?: boolean): string;
     document_close(handle: number): boolean;
     openGui(options?: { title?: string; contentDir?: string; width?: number; height?: number }): string;

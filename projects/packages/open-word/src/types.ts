@@ -49,10 +49,11 @@ export type RenderFormat = 'svg' | 'png' | 'pdf';
  * Targets `export()` can write.
  *
  * `.docx` and `.dotx` share one OOXML package writer and differ only in content
- * type and template semantics; `.html`, `.md` and `.txt` are lossy text
- * projections.
+ * type and template semantics; `.html`, `.md`, `.txt` and `.rtf` are lossy text
+ * projections. RTF export is `partial`: tables degrade to tab-separated rows
+ * and pictures and link destinations are dropped with `export.rtf.*` losses.
  */
-export type ExportFormat = 'docx' | 'dotx' | 'pdf' | 'html' | 'md' | 'txt';
+export type ExportFormat = 'docx' | 'dotx' | 'pdf' | 'html' | 'md' | 'txt' | 'rtf';
 
 /** What the installed engine can do, per format and per capability. */
 export interface FormatCapability {
@@ -276,4 +277,51 @@ export interface ExportReport {
     readonly losses: readonly ExportLoss[];
     /** False for projections such as PDF that cannot be reopened for editing. */
     readonly editable: boolean;
+}
+
+/**
+ * Result of `OpenWord.undo()`.
+ *
+ * History is process-local: it lives on the open handle and is never written to
+ * a `.oword` container.
+ */
+export interface UndoResult {
+    readonly document: DocumentSummary;
+    readonly revision: number;
+    /** Number of mutations restored. */
+    readonly undone: number;
+    /** Whether at least one undone mutation can be replayed. */
+    readonly redoAvailable: boolean;
+}
+
+/** Result of `OpenWord.redo()`. */
+export interface RedoResult {
+    readonly document: DocumentSummary;
+    readonly revision: number;
+    /** Number of undone mutations replayed. */
+    readonly redone: number;
+    /** Whether at least one mutation can still be undone. */
+    readonly undoAvailable: boolean;
+}
+
+/** Options of `OpenWord.merge()`. */
+export interface MergeOptions {
+    /** Only `append` is supported today. */
+    readonly mode?: 'append';
+}
+
+/**
+ * Result of `OpenWord.merge()`.
+ *
+ * The donor document is opened through the same routing as `open()`; its blocks
+ * are deep-copied to the end of the receiver with fresh node ids.
+ */
+export interface MergeResult {
+    /** Number of block nodes appended, including nested children. */
+    readonly blocksAdded: number;
+    /** Committed summary after the merge. */
+    readonly summary: DocumentSummary;
+    readonly revision: number;
+    /** Import losses carried by the merged document, plus the receiver's own. */
+    readonly losses: readonly ImportLoss[];
 }

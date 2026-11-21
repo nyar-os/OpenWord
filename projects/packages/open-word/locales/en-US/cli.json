@@ -10,6 +10,9 @@
             "find": "Search a document and print match positions",
             "edit": "Apply atomic edits and print the new revision",
             "replace": "Replace text in a document and print the replacement count",
+            "undo": "Undo recent edits in a document (saved back only for .oword)",
+            "redo": "Redo undone edits in a document (saved back only for .oword)",
+            "merge": "Append another document's blocks to a document",
             "export": "Write one export target from a document",
             "gui": "Open the OpenWord Studio window"
         },
@@ -19,7 +22,7 @@
             "template": "Template file to start from",
             "overwrite": "Replace the output file when it already exists",
             "checks": "Comma-separated checks: styles, images, sections, tables, links",
-            "format": "Export target: docx, dotx, pdf, html, md or txt",
+            "format": "Export target: docx, dotx, pdf, html, md, txt or rtf",
             "paragraph": "Append a paragraph with this text",
             "heading": "Append a section heading with this text",
             "level": "Heading level between 1 and 6",
@@ -27,6 +30,7 @@
             "author": "Document author",
             "expectedRevision": "Reject the edit unless the document is at this revision",
             "limit": "Maximum number of matches to return",
+            "steps": "Number of edits to undo or redo (default 1)",
             "find": "Text to search for",
             "with": "Replacement text"
         }

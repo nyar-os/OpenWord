@@ -44,6 +44,16 @@ fn text(ctx: &CallContext, index: usize) -> Result<String> {
     argument(ctx, index)?.as_string()
 }
 
+fn optional_steps(ctx: &CallContext, index: usize) -> Result<Option<u32>> {
+    match ctx.args().get(index).copied() {
+        Some(value) if !value.is_undefined()? => {
+            let raw = value.as_i64()?;
+            u32::try_from(raw).map(Some).map_err(|_| Error::new("session/argument-invalid: `steps` must be a positive integer"))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn respond(ctx: &CallContext, value: &Value) -> Result<JsValue> {
     let text = value.to_string();
     ctx.env().string(&text)
@@ -136,6 +146,34 @@ fn document_edit(ctx: CallContext) -> Result<JsValue> {
     let request: Value =
         serde_json::from_str(&raw).map_err(|error| Error::new(format!("session/argument-invalid: {error}")))?;
     respond(&ctx, &open_word_document::edit(handle, &request).map_err(failure_of)?)
+}
+
+/// Undoes committed edits on a document handle.
+#[function]
+fn document_undo(ctx: CallContext) -> Result<JsValue> {
+    let handle = handle(&ctx, 0)?;
+    let steps = optional_steps(&ctx, 1)?;
+    respond(&ctx, &open_word_document::undo(handle, steps).map_err(failure_of)?)
+}
+
+/// Replays undone edits on a document handle.
+#[function]
+fn document_redo(ctx: CallContext) -> Result<JsValue> {
+    let handle = handle(&ctx, 0)?;
+    let steps = optional_steps(&ctx, 1)?;
+    respond(&ctx, &open_word_document::redo(handle, steps).map_err(failure_of)?)
+}
+
+/// Appends another document's blocks to a document handle.
+#[function]
+fn document_merge(ctx: CallContext) -> Result<JsValue> {
+    let handle = handle(&ctx, 0)?;
+    let path = text(&ctx, 1)?;
+    let mode = match ctx.args().get(2).copied() {
+        Some(value) if !value.is_undefined()? => Some(value.as_string()?),
+        _ => None,
+    };
+    respond(&ctx, &open_word_document::merge(handle, Path::new(&path), mode.as_deref()).map_err(failure_of)?)
 }
 
 /// Writes one export target from a document handle.
@@ -236,6 +274,34 @@ impl IpcHandler for WordIpcHandler {
                 }
                 None => failure(id, "documentError", "session/argument-invalid: `handle` is required".to_string()),
             },
+            "document.undo" | "document.redo" => match handle_field(&value) {
+                Some(handle) => {
+                    let steps = match optional_steps_field(&value) {
+                        Ok(steps) => steps,
+                        Err(message) => return failure(id, "documentError", message),
+                    };
+                    let result = if ty == "document.undo" {
+                        open_word_document::undo(handle, steps)
+                    }
+                    else {
+                        open_word_document::redo(handle, steps)
+                    };
+                    let kind = if ty == "document.undo" { "undoResult" } else { "redoResult" };
+                    document_outcome(id, kind, result)
+                }
+                None => failure(id, "documentError", "session/argument-invalid: `handle` is required".to_string()),
+            },
+            "document.merge" => match handle_field(&value) {
+                Some(handle) => {
+                    let Some(path) = string_field(&value, "path")
+                    else {
+                        return failure(id, "documentError", "session/argument-invalid: `path` is required".to_string());
+                    };
+                    let mode = string_field(&value, "mode");
+                    document_outcome(id, "mergeResult", open_word_document::merge(handle, Path::new(&path), mode.as_deref()))
+                }
+                None => failure(id, "documentError", "session/argument-invalid: `handle` and `path` are required".to_string()),
+            },
             "document.export" => match (handle_field(&value), string_field(&value, "format"), string_field(&value, "target")) {
                 (Some(handle), Some(format), Some(target)) => {
                     let overwrite = value.get("overwrite").and_then(Value::as_bool).unwrap_or(true);
@@ -290,6 +356,17 @@ fn string_field(value: &Value, key: &str) -> Option<String> {
 
 fn handle_field(value: &Value) -> Option<u64> {
     value.get("handle").and_then(Value::as_u64)
+}
+
+fn optional_steps_field(value: &Value) -> std::result::Result<Option<u32>, String> {
+    match value.get("steps") {
+        None | Some(Value::Null) => Ok(None),
+        Some(steps) => steps
+            .as_u64()
+            .and_then(|raw| u32::try_from(raw).ok())
+            .map(Some)
+            .ok_or_else(|| "session/argument-invalid: `steps` must be a positive integer".to_string()),
+    }
 }
 
 fn platform_name() -> &'static str {
@@ -526,6 +603,9 @@ register_module![
     document_summary,
     document_find,
     document_edit,
+    document_undo,
+    document_redo,
+    document_merge,
     document_export,
     document_close,
     open_gui,

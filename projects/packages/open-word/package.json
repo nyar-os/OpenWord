@@ -1,0 +1,57 @@
+{
+    "name": "@wae/open-word",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Document authoring on one model: create, inspect and export Word-compatible documents",
+    "license": "MPL-2.0",
+    "type": "module",
+    "engines": {
+        "node": ">=18"
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "bin": {
+        "open-word": "./dist/cli.js"
+    },
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "locales"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "test": "tsc -p tsconfig.json && node --test dist/smoke.test.js"
+    },
+    "keywords": [
+        "docx",
+        "word",
+        "document",
+        "template",
+        "wae"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/nyar-os/OpenWord.git",
+        "directory": "projects/packages/open-word"
+    },
+    "devDependencies": {
+        "@types/node": "^22.20.4",
+        "typescript": "^5.9.2"
+    },
+    "dependencies": {
+        "@wae/commander": "0.0.7"
+    },
+    "optionalDependencies": {
+        "@wae/open-word-darwin-arm64": "workspace:*",
+        "@wae/open-word-darwin-x64": "workspace:*",
+        "@wae/open-word-linux-arm64": "workspace:*",
+        "@wae/open-word-linux-x64": "workspace:*",
+        "@wae/open-word-win32-x64": "workspace:*"
+    }
+}

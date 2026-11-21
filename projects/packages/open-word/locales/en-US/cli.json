@@ -1,0 +1,29 @@
+{
+    "cli": {
+        "intro": "OpenWord — create, inspect and export documents on one native model.",
+        "cmd": {
+            "capabilities": "Print what this build supports, honestly",
+            "create": "Create a document and save it to a project file",
+            "open": "Open a document and print its committed revision and structure",
+            "save": "Save an open document to a project file",
+            "inspect": "Run structure and style checks on a document",
+            "edit": "Apply atomic edits and print the new revision",
+            "export": "Write one export target from a document",
+            "gui": "Open the OpenWord Studio window"
+        },
+        "opt": {
+            "out": "File to write",
+            "title": "Document title",
+            "template": "Template file to start from",
+            "overwrite": "Replace the output file when it already exists",
+            "checks": "Comma-separated checks: styles, images, sections, tables, links",
+            "format": "Export target: docx, dotx, pdf, html or md",
+            "paragraph": "Append a paragraph with this text",
+            "heading": "Append a section heading with this text",
+            "level": "Heading level between 1 and 6",
+            "table": "Append a table from a JSON array of string rows",
+            "author": "Document author",
+            "expectedRevision": "Reject the edit unless the document is at this revision"
+        }
+    }
+}

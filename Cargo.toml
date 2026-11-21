@@ -20,10 +20,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Document engine primitives. The revision is pinned so local builds and CI
 # resolve the same semantic IR and format adapters.
-document-ir = { git = "https://github.com/oovm/rust-boost", rev = "61a52cc73396957f63df39aeaf6d42d7904e907b" }
-document-session = { git = "https://github.com/oovm/rust-boost", rev = "61a52cc73396957f63df39aeaf6d42d7904e907b" }
-boost-fs = { git = "https://github.com/oovm/rust-boost", rev = "61a52cc73396957f63df39aeaf6d42d7904e907b", default-features = false }
-document-formats = { git = "https://github.com/oovm/rust-boost", rev = "61a52cc73396957f63df39aeaf6d42d7904e907b", default-features = false, features = ["docx", "pdf", "html", "markdown", "rtf"] }
+document-ir = { git = "https://github.com/oovm/rust-boost", rev = "ad76d3060dc8c0e219ba1016f88bf5ab905d48d9" }
+document-session = { git = "https://github.com/oovm/rust-boost", rev = "ad76d3060dc8c0e219ba1016f88bf5ab905d48d9" }
+boost-fs = { git = "https://github.com/oovm/rust-boost", rev = "ad76d3060dc8c0e219ba1016f88bf5ab905d48d9", default-features = false }
+document-formats = { git = "https://github.com/oovm/rust-boost", rev = "ad76d3060dc8c0e219ba1016f88bf5ab905d48d9", default-features = false, features = ["docx", "pdf", "html", "markdown", "rtf"] }
 
 [profile.release]
 lto = true

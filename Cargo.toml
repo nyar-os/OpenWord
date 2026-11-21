@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["projects/sub_projects", "projects/crates/*"]
-default-members = ["projects/sub_projects"]
+default-members = ["projects/crates/napi"]
 
 [workspace.package]
 version = "0.0.0"

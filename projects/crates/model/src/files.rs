@@ -16,9 +16,8 @@ use document_ir::{Block, BreakKind, DocumentEnvelope, DocumentGraph, Inline, Nod
 use serde_json::{Value, json};
 
 use crate::{
-    ServiceError, search,
+    ServiceError, loss_values,
     store::{self, Entry, Source},
-    summary,
 };
 
 /// Result of writing a native project.
@@ -87,7 +86,7 @@ pub(crate) fn load(path: &Path) -> Result<Entry, ServiceError> {
         }
         "rtf" => {
             let bytes = read(path)?;
-            let graph = crate::rtf::import_rtf_bytes(&label, &bytes, store::next_document_id())?;
+            let graph = import::rtf::import_rtf_bytes(&label, &bytes, store::next_document_id()).map_err(format_failure)?;
             Ok(Entry::new(graph, Source::Rtf { label }))
         }
         "pdf" => {
@@ -121,8 +120,16 @@ pub(crate) fn export_graph(graph: &DocumentGraph, format: &str, target: &Path, o
         "pdf" => (export::pdf::export_pdf_bytes(graph).map_err(format_failure)?, false, Vec::new()),
         "txt" => (text_projection(graph).into_bytes(), true, Vec::new()),
         "rtf" => {
-            let (text, losses) = crate::rtf::export_rtf(graph);
-            (text.into_bytes(), true, losses)
+            let report = export::rtf::export_rtf_report(graph).map_err(format_failure)?;
+            let losses = report
+                .losses
+                .into_iter()
+                .map(|marker| {
+                    let severity = if matches!(marker.status, document_ir::SemanticStatus::Unsupported) { "error" } else { "warning" };
+                    json!({ "code": marker.code, "severity": severity, "message": marker.message })
+                })
+                .collect();
+            (report.text.into_bytes(), true, losses)
         }
         other => {
             return Err(ServiceError::new("format/unsupported", format!("`{other}` has no export route in this build")));
@@ -131,7 +138,7 @@ pub(crate) fn export_graph(graph: &DocumentGraph, format: &str, target: &Path, o
 
     write_atomically(target, &bytes, overwrite)?;
 
-    let mut losses = summary::loss_values(graph);
+    let mut losses = loss_values(graph);
     losses.extend(route_losses);
 
     Ok(json!({
@@ -170,7 +177,7 @@ fn text_graph(text: &str) -> DocumentGraph {
 fn text_projection(graph: &DocumentGraph) -> String {
     let mut lines = Vec::new();
     let mut seen = HashSet::new();
-    for root in search::roots(graph) {
+    for root in document_ir::roots(graph) {
         push_text(graph, root, &mut seen, &mut lines);
     }
     if lines.is_empty() {
@@ -191,15 +198,15 @@ fn push_text(graph: &DocumentGraph, id: NodeId, seen: &mut HashSet<NodeId>, line
     };
     match &node.block {
         Block::Section { level, title, children, .. } => {
-            lines.push(format!("{} {}", "#".repeat(*level as usize), summary::flatten(title)));
+            lines.push(format!("{} {}", "#".repeat(*level as usize), document_ir::plain_text(title)));
             for child in children {
                 push_text(graph, *child, seen, lines);
             }
         }
-        Block::Paragraph { content } => lines.push(summary::flatten(content)),
+        Block::Paragraph { content } => lines.push(document_ir::plain_text(content)),
         Block::List { items, .. } => {
             for item in items {
-                lines.push(format!("- {}", summary::flatten(&item.content)));
+                lines.push(format!("- {}", document_ir::plain_text(&item.content)));
                 for child in &item.children {
                     push_text(graph, *child, seen, lines);
                 }
@@ -232,7 +239,7 @@ fn cell_text(graph: &DocumentGraph, cell: &TableCell) -> String {
         .iter()
         .filter_map(|id| graph.blocks.iter().find(|node| node.id == *id))
         .filter_map(|node| match &node.block {
-            Block::Paragraph { content } => Some(summary::flatten(content)),
+            Block::Paragraph { content } => Some(document_ir::plain_text(content)),
             _ => None,
         })
         .map(|text| text.replace('\n', " "))

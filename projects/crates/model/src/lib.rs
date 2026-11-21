@@ -11,14 +11,11 @@ mod edit;
 mod files;
 mod inspect;
 mod merge;
-mod rtf;
-mod search;
-mod stats;
 mod store;
-mod summary;
 
 use std::{fmt, path::Path};
 
+use document_ir::DocumentGraph;
 use serde_json::{Map, Value, json};
 
 /// Every document format the product classifies.
@@ -26,6 +23,29 @@ pub const DOCUMENT_FORMATS: &[&str] = &["docx", "docm", "dotx", "dotm", "doc", "
 
 /// Inspection rules the product declares.
 const INSPECT_CHECKS: &[&str] = &["styles", "fonts", "images", "sections", "tables", "links"];
+
+/// Loss codes the RTF route can report.
+const RTF_LOSS_CODES: &[&str] = &[
+    "import.rtf.table",
+    "import.rtf.list",
+    "import.rtf.image",
+    "import.rtf.field",
+    "import.rtf.color",
+    "import.rtf.font",
+    "export.rtf.table",
+    "export.rtf.image",
+    "export.rtf.link",
+];
+
+/// Projects one graph into the authoring summary shape.
+pub(crate) fn summary_json(graph: &DocumentGraph) -> Value {
+    serde_json::to_value(document_ir::summarize(graph)).expect("a document summary always serializes")
+}
+
+/// Projects the recorded loss markers into the report shape every surface reads.
+pub(crate) fn loss_values(graph: &DocumentGraph) -> Vec<Value> {
+    document_ir::losses(graph).into_iter().map(|entry| json!(entry)).collect()
+}
 
 /// Per-document render targets.
 const RENDER_FORMATS: &[&str] = &["svg", "png", "pdf"];
@@ -90,7 +110,7 @@ pub fn capabilities() -> Value {
     for (format, import, edit_level, export) in matrix {
         let mut entry = json!({ "import": import, "edit": edit_level, "export": export });
         if format == "rtf" {
-            entry["lossCodes"] = json!(rtf::LOSS_CODES);
+            entry["lossCodes"] = json!(RTF_LOSS_CODES);
         }
         formats.insert((*format).to_string(), entry);
     }
@@ -175,13 +195,14 @@ pub fn inspect(handle: u64, checks: Option<Vec<String>>) -> Result<Value, Servic
 
 /// Returns the committed summary of one document handle.
 pub fn summary(handle: u64) -> Result<Value, ServiceError> {
-    store::with(handle, |entry| summary::project(&entry.graph)).ok_or_else(|| document_not_found(handle))
+    store::with(handle, |entry| summary_json(&entry.graph)).ok_or_else(|| document_not_found(handle))
 }
 
 /// Returns block, paragraph, heading, table, word and character counts for one
 /// document handle.
 pub fn stats(handle: u64) -> Result<Value, ServiceError> {
-    store::with(handle, |entry| stats::project(&entry.graph)).ok_or_else(|| document_not_found(handle))
+    store::with(handle, |entry| serde_json::to_value(document_ir::statistics(&entry.graph)).expect("statistics always serialize"))
+        .ok_or_else(|| document_not_found(handle))
 }
 
 /// Writes one export target from a document handle.
@@ -197,8 +218,8 @@ pub fn find(handle: u64, query: &str, limit: Option<u32>) -> Result<Value, Servi
     if query.is_empty() {
         return Err(invalid("`query` must be a non-empty string"));
     }
-    let limit = limit.map_or(search::DEFAULT_LIMIT, |value| value as usize);
-    store::with(handle, |entry| Value::Array(search::find(&entry.graph, query, limit)))
+    let limit = limit.map_or(100, |value| value as usize);
+    store::with(handle, |entry| serde_json::to_value(document_ir::find(&entry.graph, query, limit)).expect("hits always serialize"))
         .ok_or_else(|| document_not_found(handle))
 }
 
@@ -207,12 +228,12 @@ pub fn find(handle: u64, query: &str, limit: Option<u32>) -> Result<Value, Servi
 /// A successful batch records the prior graph for undo and clears the redo
 /// path; a rejected batch leaves both the document and its history untouched.
 pub fn edit(handle: u64, request: &Value) -> Result<Value, ServiceError> {
-    store::with_mut(handle, |entry| {
-        let before = entry.graph.clone();
+    store::with_history(handle, |entry| {
+        let before = entry.state().clone();
         let results = edit::apply(&mut entry.graph, request)?;
-        entry.commit_history(before);
+        entry.commit(before);
         Ok(json!({
-            "document": summary::project(&entry.graph),
+            "document": summary_json(&entry.graph),
             "revision": entry.graph.revision,
             "results": results,
         }))
@@ -230,10 +251,10 @@ pub fn undo(handle: u64, steps: Option<u32>) -> Result<Value, ServiceError> {
     if steps == 0 {
         return Err(invalid("`steps` must be a positive integer"));
     }
-    store::with_mut(handle, |entry| {
+    store::with_history(handle, |entry| {
         entry.undo(steps)?;
         Ok(json!({
-            "document": summary::project(&entry.graph),
+            "document": summary_json(&entry.graph),
             "revision": entry.graph.revision,
             "undone": steps,
             "redoAvailable": entry.can_redo(),
@@ -248,10 +269,10 @@ pub fn redo(handle: u64, steps: Option<u32>) -> Result<Value, ServiceError> {
     if steps == 0 {
         return Err(invalid("`steps` must be a positive integer"));
     }
-    store::with_mut(handle, |entry| {
+    store::with_history(handle, |entry| {
         entry.redo(steps)?;
         Ok(json!({
-            "document": summary::project(&entry.graph),
+            "document": summary_json(&entry.graph),
             "revision": entry.graph.revision,
             "redone": steps,
             "undoAvailable": entry.can_undo(),
@@ -272,15 +293,15 @@ pub fn merge(handle: u64, path: &Path, mode: Option<&str>) -> Result<Value, Serv
     }
     store::with(handle, |_| ()).ok_or_else(|| document_not_found(handle))?;
     let donor = files::load(path)?;
-    store::with_mut(handle, |entry| {
-        let before = entry.graph.clone();
+    store::with_history(handle, |entry| {
+        let before = entry.state().clone();
         let outcome = merge::append(&mut entry.graph, &donor.graph);
-        entry.commit_history(before);
+        entry.commit(before);
         Ok(json!({
             "blocksAdded": outcome.blocks_added,
-            "summary": summary::project(&entry.graph),
+            "summary": summary_json(&entry.graph),
             "revision": entry.graph.revision,
-            "losses": summary::loss_values(&entry.graph),
+            "losses": loss_values(&entry.graph),
         }))
     })
     .ok_or_else(|| document_not_found(handle))?

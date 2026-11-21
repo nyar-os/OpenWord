@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use document_ir::{Block, DocumentGraph, Inline, ListItem, NodeId, TableCell, TableRow};
 use serde_json::{Value, json};
 
-use crate::{ServiceError, search};
+use crate::ServiceError;
 
 #[derive(Clone)]
 enum Operation {
@@ -148,7 +148,7 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
         }
         "block.remove" => {
             let raw = required_text(operation, "id")?;
-            let id = search::parse_block_id(&raw)
+            let id = document_ir::parse_block_address(&raw)
                 .ok_or_else(|| crate::invalid("`id` must be a block id such as `node-3` or `section-1`"))?;
             Ok(Operation::RemoveBlock { id })
         }
@@ -190,12 +190,12 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
 
 fn parse_block_id(operation: &Value) -> Result<NodeId, ServiceError> {
     let raw = required_text(operation, "id")?;
-    search::parse_block_id(&raw).ok_or_else(|| crate::invalid("`id` must be a block id such as `node-3` or `section-1`"))
+    document_ir::parse_block_address(&raw).ok_or_else(|| crate::invalid("`id` must be a block id such as `node-3` or `section-1`"))
 }
 
 fn paragraph_target(operation: &Value) -> Result<Target, ServiceError> {
     if let Some(raw) = optional_text(operation, "id")? {
-        return search::parse_block_id(&raw)
+        return document_ir::parse_block_address(&raw)
             .map(Target::Id)
             .ok_or_else(|| crate::invalid("`id` must be a block id such as `node-3` or `section-1`"));
     }
@@ -371,7 +371,7 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             Ok(json!({ "type": "document.replaceText", "replaced": replaced }))
         }
         Operation::RemoveBlock { id } => {
-            let label = graph.blocks.iter().find(|node| node.id == id).map(|node| search::block_id(&node.block, id));
+            let label = graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id));
             let removed = remove_block(graph, id)?;
             graph.bump_revision();
             Ok(json!({ "type": "block.remove", "id": label, "removed": removed }))
@@ -412,7 +412,7 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             Ok(json!({ "type": "paragraph.update", "id": label }))
         }
         Operation::MoveBlock { id, index } => {
-            let label = graph.blocks.iter().find(|node| node.id == id).map(|node| search::block_id(&node.block, id));
+            let label = graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id));
             move_block(graph, id, index)?;
             graph.bump_revision();
             Ok(json!({ "type": "block.move", "id": label, "index": index }))
@@ -493,7 +493,7 @@ fn append_block(graph: &mut DocumentGraph, block: Block) {
 fn replace_text(graph: &mut DocumentGraph, find: &str, replace: &str, limit: Option<usize>) -> usize {
     let mut budget = limit.unwrap_or(usize::MAX);
     let mut replaced = 0;
-    for id in search::flat_order(graph) {
+    for id in document_ir::flat_order(graph) {
         if budget == 0 {
             break;
         }
@@ -569,7 +569,7 @@ fn replace_in_text(text: &str, find: &str, replace: &str, budget: &mut usize) ->
 /// Unknown placeholders stay verbatim.
 fn fill_template(graph: &mut DocumentGraph, values: &[(String, String)]) -> usize {
     let mut replaced = 0;
-    for id in search::flat_order(graph) {
+    for id in document_ir::flat_order(graph) {
         let Some(node) = graph.blocks.iter_mut().find(|node| node.id == id)
         else {
             continue;
@@ -661,7 +661,7 @@ fn collect_subtree(graph: &DocumentGraph, id: NodeId, doomed: &mut HashSet<NodeI
         return;
     }
     if let Some(node) = graph.blocks.iter().find(|node| node.id == id) {
-        for child in search::children(&node.block) {
+        for child in document_ir::child_ids(&node.block) {
             collect_subtree(graph, child, doomed);
         }
     }
@@ -689,7 +689,7 @@ fn prune_children(block: &mut Block, doomed: &HashSet<NodeId>) {
 }
 
 fn insert_paragraph(graph: &mut DocumentGraph, index: usize, text: String) -> Result<NodeId, ServiceError> {
-    let order = search::flat_order(graph);
+    let order = document_ir::flat_order(graph);
     let Some(target) = order.get(index).copied()
     else {
         return Err(crate::invalid(format!("`index` {index} is outside the document's {} blocks", order.len())));
@@ -795,7 +795,7 @@ fn row_at<'a>(
 }
 
 fn table_id_at(graph: &DocumentGraph, table: usize) -> Result<NodeId, ServiceError> {
-    let tables = search::flat_order(graph)
+    let tables = document_ir::flat_order(graph)
         .into_iter()
         .filter(|id| graph.blocks.iter().any(|node| node.id == *id && matches!(node.block, Block::Table { .. })))
         .collect::<Vec<_>>();
@@ -1010,14 +1010,14 @@ fn update_paragraph(graph: &mut DocumentGraph, target: Target, text: String) -> 
             id
         }
         Target::Index(index) => {
-            let order = search::flat_order(graph);
+            let order = document_ir::flat_order(graph);
             *order
                 .get(index)
                 .ok_or_else(|| crate::invalid(format!("`index` {index} is outside the document's {} blocks", order.len())))?
         }
     };
     let label =
-        graph.blocks.iter().find(|node| node.id == id).map(|node| search::block_id(&node.block, id)).unwrap_or_default();
+        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
     let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
     match &mut node.block {
         Block::Paragraph { content } => *content = vec![Inline::Text { text }],
@@ -1027,7 +1027,7 @@ fn update_paragraph(graph: &mut DocumentGraph, target: Target, text: String) -> 
 }
 
 fn move_block(graph: &mut DocumentGraph, id: NodeId, index: usize) -> Result<(), ServiceError> {
-    let order = search::flat_order(graph);
+    let order = document_ir::flat_order(graph);
     let Some(position) = order.iter().position(|node| *node == id)
     else {
         return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));

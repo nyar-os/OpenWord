@@ -63,19 +63,19 @@ pub(crate) fn load(path: &Path) -> Result<Entry, ServiceError> {
         }
         "docx" | "docm" => {
             let bytes = read(path)?;
-            let mut graph = import::docx::import_docx_bytes(&label, &bytes).map_err(|error| format_failure(error))?;
+            let mut graph = import::docx::import_docx_bytes(&label, &bytes).map_err(format_failure)?;
             graph.id = store::next_document_id();
             Ok(Entry::new(graph, Source::Docx { label, bytes }))
         }
         "md" | "markdown" => {
             let text = read_text(path)?;
-            let mut graph = import::markdown::import_markdown_bytes(&label, &text).map_err(|error| format_failure(error))?;
+            let mut graph = import::markdown::import_markdown_bytes(&label, &text).map_err(format_failure)?;
             graph.id = store::next_document_id();
             Ok(Entry::new(graph, Source::Other("md")))
         }
         "html" | "htm" => {
             let bytes = read(path)?;
-            let mut graph = import::html::import_html_bytes(&label, &bytes).map_err(|error| format_failure(error))?;
+            let mut graph = import::html::import_html_bytes(&label, &bytes).map_err(format_failure)?;
             graph.id = store::next_document_id();
             Ok(Entry::new(graph, Source::Other("html")))
         }
@@ -87,7 +87,7 @@ pub(crate) fn load(path: &Path) -> Result<Entry, ServiceError> {
         }
         "pdf" => {
             let bytes = read(path)?;
-            let mut graph = import::pdf::import_pdf_bytes(&label, &bytes).map_err(|error| format_failure(error))?;
+            let mut graph = import::pdf::import_pdf_bytes(&label, &bytes).map_err(format_failure)?;
             graph.id = store::next_document_id();
             Ok(Entry::new(graph, Source::Other("pdf")))
         }
@@ -110,10 +110,10 @@ pub(crate) fn save_graph(graph: &DocumentGraph, path: &Path, overwrite: bool) ->
 /// Exports one target and reports what the route kept.
 pub(crate) fn export_graph(graph: &DocumentGraph, format: &str, target: &Path, overwrite: bool) -> Result<Value, ServiceError> {
     let (bytes, editable) = match format {
-        "docx" => (export::docx::export_docx_bytes(graph).map_err(|error| format_failure(error))?, true),
-        "md" => (export::markdown::export_markdown(graph).map_err(|error| format_failure(error))?.into_bytes(), true),
-        "html" => (export::html::export_html(graph).map_err(|error| format_failure(error))?.into_bytes(), true),
-        "pdf" => (export::pdf::export_pdf_bytes(graph).map_err(|error| format_failure(error))?, false),
+        "docx" => (export::docx::export_docx_bytes(graph).map_err(format_failure)?, true),
+        "md" => (export::markdown::export_markdown(graph).map_err(format_failure)?.into_bytes(), true),
+        "html" => (export::html::export_html(graph).map_err(format_failure)?.into_bytes(), true),
+        "pdf" => (export::pdf::export_pdf_bytes(graph).map_err(format_failure)?, false),
         other => {
             return Err(ServiceError::new("format/unsupported", format!("`{other}` has no export route in this build")));
         }

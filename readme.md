@@ -82,8 +82,9 @@ returns the changed block addresses: matching is case-sensitive unless
 `--ignore-case` is given, `--whole-word` requires a non-word character on both
 sides, and `--limit` caps the total. One committing pass advances the revision
 once and is undoable; a pass with no match changes nothing. `inspect` runs
-structural rules (sections, tables, links, images, styles)
-and reports the revision it observed. PDF export is a projection and cannot be
+structural rules (sections, tables, links, images, styles, fonts) and reports
+the revision it observed, flagging an empty `font-family` declaration or a
+`font-size` that is not a positive point value. PDF export is a projection and cannot be
 reopened for editing. Plain-text export uses `#` heading markers, `-` list items
 and tabbed table rows.
 

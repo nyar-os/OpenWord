@@ -118,8 +118,7 @@ pub fn capabilities() -> Value {
 
     let mut checks = Map::new();
     for check in INSPECT_CHECKS {
-        let level = if *check == "fonts" { "unsupported" } else { "supported" };
-        checks.insert((*check).to_string(), json!(level));
+        checks.insert((*check).to_string(), json!("supported"));
     }
 
     let mut renderers = Map::new();
@@ -370,7 +369,7 @@ mod tests {
         assert_eq!(matrix["formats"]["doc"]["import"], json!("unsupported"));
         assert_eq!(matrix["formats"]["txt"]["export"], json!("supported"));
         assert_eq!(matrix["checks"]["sections"], json!("supported"));
-        assert_eq!(matrix["checks"]["fonts"], json!("unsupported"));
+        assert_eq!(matrix["checks"]["fonts"], json!("supported"));
         assert_eq!(matrix["exportTargets"]["pdf"], json!("supported"));
         assert_eq!(matrix["exportTargets"]["txt"], json!("supported"));
         assert_eq!(matrix["exportTargets"]["dotx"], json!("unsupported"));

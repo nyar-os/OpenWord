@@ -12,7 +12,7 @@ use crate::store::Source;
 
 const CHECKER_VERSION: &str = "open-word/1";
 
-const ALL_CHECKS: &[&str] = &["sections", "tables", "links", "images", "styles"];
+const ALL_CHECKS: &[&str] = &["sections", "tables", "links", "images", "styles", "fonts"];
 
 /// Runs the requested checks and returns the report.
 pub(crate) fn report(graph: &DocumentGraph, source: &Source, checks: Option<&[String]>) -> Value {
@@ -36,7 +36,7 @@ pub(crate) fn report(graph: &DocumentGraph, source: &Source, checks: Option<&[St
     }
 
     let enabled = Enabled::resolve(&requested);
-    if enabled.sections || enabled.tables || enabled.links || enabled.images || enabled.styles {
+    if enabled.sections || enabled.tables || enabled.links || enabled.images || enabled.styles || enabled.fonts {
         walk(graph, &enabled, &mut issues);
     }
 
@@ -93,6 +93,7 @@ struct Enabled {
     links: bool,
     images: bool,
     styles: bool,
+    fonts: bool,
 }
 
 impl Enabled {
@@ -103,6 +104,7 @@ impl Enabled {
             links: requested.contains(&"links"),
             images: requested.contains(&"images"),
             styles: requested.contains(&"styles"),
+            fonts: requested.contains(&"fonts"),
         }
     }
 }
@@ -168,7 +170,7 @@ impl Issue {
 fn walk(graph: &DocumentGraph, enabled: &Enabled, issues: &mut Vec<Value>) {
     let mut previous_level: u8 = 1;
     let mut current_section: Option<String> = None;
-    let inline_checks = enabled.links || enabled.images || enabled.styles;
+    let inline_checks = enabled.links || enabled.images || enabled.styles || enabled.fonts;
 
     for node in &graph.blocks {
         match &node.block {
@@ -299,6 +301,9 @@ fn check_inlines(
                             .into_value(),
                     );
                 }
+                if enabled.fonts {
+                    check_font(style, node, section_id, revision, issues);
+                }
                 check_inlines(children, node, section_id, revision, enabled, issues);
             }
             Inline::Attributed { children, .. } => check_inlines(children, node, section_id, revision, enabled, issues),
@@ -349,6 +354,42 @@ fn known_style(style: &str) -> bool {
     const EXACT: &[&str] = &["bold", "italic", "strike", "superscript", "subscript", "underline"];
     const PREFIXES: &[&str] = &["color:", "highlight:", "font-family:", "font-size:"];
     EXACT.contains(&style) || PREFIXES.iter().any(|prefix| style.len() > prefix.len() && style.starts_with(prefix))
+}
+
+/// Validates one normalized font declaration.
+///
+/// Importers spell a font as `font-family:<name>` and a size as
+/// `font-size:<points>`. An empty family or a size that is not a positive,
+/// finite point value cannot be honoured by a writer, so both are errors.
+fn check_font(style: &str, node: NodeId, section_id: Option<&str>, revision: u64, issues: &mut Vec<Value>) {
+    if let Some(family) = style.strip_prefix("font-family:") {
+        if family.trim().is_empty() {
+            issues.push(
+                Issue::error("font/empty-family", "a font-family declaration names no family", revision)
+                    .at(node)
+                    .in_section(section_id)
+                    .into_value(),
+            );
+        }
+        return;
+    }
+    let Some(size) = style.strip_prefix("font-size:")
+    else {
+        return;
+    };
+    let valid = size.trim().parse::<f64>().is_ok_and(|points| points.is_finite() && points > 0.0 && points <= 1000.0);
+    if !valid {
+        issues.push(
+            Issue::error(
+                "font/invalid-size",
+                format!("`font-size:{size}` is not a positive point size"),
+                revision,
+            )
+            .at(node)
+            .in_section(section_id)
+            .into_value(),
+        );
+    }
 }
 
 fn title_text(title: &[Inline]) -> String {

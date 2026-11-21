@@ -24,7 +24,7 @@ graph LR
 - **No fixture corpus** — golden documents, conformance fixtures and round-trip acceptance suites live downstream. This repository keeps minimal smoke-level tests only.
 - **No second document model** — the CLI, the studio and the agent skills consume the same document revision.
 - **No algorithms in the skills package** — it ships skill documents only.
-- **No macro, template, ODT, RTF or legacy Word input** — those formats are reported as unsupported instead of being half-parsed.
+- **No macro, template, ODT or legacy Word input** — those formats are reported as unsupported. RTF is read by a small built-in reader as a declared text projection, never as a full word processor.
 
 ## Usage
 
@@ -54,18 +54,29 @@ await word.dispose();
 
 `capabilities` reports what the installed engine actually routes: `.docx`/`.docm`
 import and `docx`/`md`/`html`/`pdf`/`txt` export are supported, `.md`/`.html`/`.txt`/`.pdf`
-open for reading (PDF import is partial), and `.dotx`/`.dotm`/`.doc`/`.rtf`/`.odt`
-are unsupported. Editing works on the shared document model: append paragraphs,
-headings and tables, insert a paragraph at any depth-first position, replace
-text across titles, paragraphs, list items and table cells, remove a block with
-its whole subtree, set one table cell, or update metadata. Every operation
-advances exactly one revision, a batch is validated before the first mutation,
-and `expectedRevision` rejects stale writes. `find` searches the same text in
-document order and reports character offsets per block. `inspect` runs
-structural rules (sections, tables, links, images, styles) and reports the
-revision it observed. PDF export is a projection and cannot be reopened for
-editing. Plain-text export uses `#` heading markers, `-` list items and tabbed
-table rows.
+open for reading (PDF import is partial), `.rtf` opens as a partial text
+projection, and `.dotx`/`.dotm`/`.doc`/`.odt` are unsupported. RTF import keeps
+paragraphs, `\par`/`\line` breaks, `\b`/`\i`/`\ul`/`\strike`/`\super`/`\sub`
+runs, `\plain` resets, cp1252 `\'hh` escapes and `\uN` code points. Tables and
+lists degrade to paragraphs, and the font table, color table, pictures and field
+instructions are skipped; each loss is reported as `import.rtf.table|list|image|field|color|font`
+and declared in `formats.rtf.lossCodes`.
+
+Editing works on the shared document model: append paragraphs, headings and
+tables, insert a paragraph at any depth-first position, replace text across
+titles, paragraphs, list items and table cells, remove a block with its whole
+subtree, update one paragraph's text by block id or depth-first index, move a
+block (with its subtree) to another depth-first position, set one table cell,
+and insert or delete table rows and columns. Row and column edits keep every row
+on the same grid: inserted cells use `colspan`/`rowspan` 1, an inserted column
+adds one grid column to every row, and deleting the last row or column is
+rejected. Every operation advances exactly one revision, a batch is validated
+before the first mutation, and `expectedRevision` rejects stale writes. `find`
+searches the same text in document order and reports character offsets per
+block. `inspect` runs structural rules (sections, tables, links, images, styles)
+and reports the revision it observed. PDF export is a projection and cannot be
+reopened for editing. Plain-text export uses `#` heading markers, `-` list items
+and tabbed table rows.
 
 ## Repo layout
 
@@ -87,7 +98,8 @@ OpenWord/
 └── pnpm-workspace.yaml
 ```
 
-This repository ships the first usable slice: project containers, Word and
-Markdown/HTML/text import, structural inspection, atomic edits, text search and
+This repository ships the first usable slice: project containers, Word,
+Markdown/HTML/text import, partial RTF import, structural inspection, atomic
+edits (including table grids and block moves), text search and
 `docx`/`md`/`html`/`pdf`/`txt` export. Template rendering, macro handling and the
 remaining format family are reported as unsupported until they are wired.

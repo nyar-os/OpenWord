@@ -1,0 +1,26 @@
+{
+    "name": "@wae/open-word-skills",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Agent skills for OpenWord: document authoring, template fill, conversion and review",
+    "license": "Apache-2.0",
+    "type": "module",
+    "engines": {
+        "node": ">=18"
+    },
+    "files": [
+        "skills"
+    ],
+    "keywords": [
+        "open-word",
+        "docx",
+        "document",
+        "skills",
+        "agent"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/nyar-os/OpenWord.git",
+        "directory": "projects/packages/open-word-skills"
+    }
+}

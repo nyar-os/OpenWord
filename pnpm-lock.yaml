@@ -1,0 +1,436 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.4
+        version: 22.20.5
+      '@wae/wae':
+        specifier: 0.0.6
+        version: 0.0.6
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+
+  projects/packages/open-word:
+    dependencies:
+      '@wae/commander':
+        specifier: 0.0.7
+        version: 0.0.7
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.4
+        version: 22.20.5
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+    optionalDependencies:
+      '@wae/open-word-darwin-arm64':
+        specifier: workspace:*
+        version: link:../open-word-darwin-arm64
+      '@wae/open-word-darwin-x64':
+        specifier: workspace:*
+        version: link:../open-word-darwin-x64
+      '@wae/open-word-linux-arm64':
+        specifier: workspace:*
+        version: link:../open-word-linux-arm64
+      '@wae/open-word-linux-x64':
+        specifier: workspace:*
+        version: link:../open-word-linux-x64
+      '@wae/open-word-win32-x64':
+        specifier: workspace:*
+        version: link:../open-word-win32-x64
+
+  projects/packages/open-word-darwin-arm64: {}
+
+  projects/packages/open-word-darwin-x64: {}
+
+  projects/packages/open-word-linux-arm64: {}
+
+  projects/packages/open-word-linux-x64: {}
+
+  projects/packages/open-word-skills: {}
+
+  projects/packages/open-word-ui:
+    dependencies:
+      '@vmz/core':
+        specifier: 0.3.17
+        version: 0.3.17
+    devDependencies:
+      '@vmz/vmz':
+        specifier: 0.3.17
+        version: 0.3.17(typescript@5.9.3)
+
+  projects/packages/open-word-win32-x64: {}
+
+  projects/sites/homepage:
+    dependencies:
+      '@vmz/core':
+        specifier: 0.3.17
+        version: 0.3.17
+    devDependencies:
+      '@vmz/vmz':
+        specifier: 0.3.17
+        version: 0.3.17(typescript@5.9.3)
+
+packages:
+
+  '@types/node@22.20.5':
+    resolution: {integrity: sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==}
+
+  '@vmz/commander@0.3.17':
+    resolution: {integrity: sha512-PKac/Bac13B1+Yyi6xx8J5v4hd9Md+pVBJNjXH7g4D4bbbtxiHy1yXuYKJJDkZNONUfN3MfsYQAxvRyyWF/HYQ==}
+    engines: {node: '>=20'}
+
+  '@vmz/core@0.3.17':
+    resolution: {integrity: sha512-sr1Au8DgaHKRCkPsGVHDZzt24TVlC/2k80suAoFyLKuy85+ujKzZT+ULWg6KmwJarYcSqH1z6yQUK6ZtadGGsQ==}
+
+  '@vmz/diagnostic@0.3.17':
+    resolution: {integrity: sha512-vya+yfa9UXk3+UbIlpsqQD1aixyu3IxTNAs07uNAsJD4gp0LhRUkWKZ+PXA42yugINSrsCUMQcXLpW2ztjzfZw==}
+    engines: {node: '>=20'}
+
+  '@vmz/plugin@0.3.17':
+    resolution: {integrity: sha512-QHH6bi6wkdemfW18+Af1uADuWxT5PjXDdzuWIYjD/Z9j0sUC6RnEzL2qu9BbER9eE0aLPAht4eGCGH0J22W90g==}
+
+  '@vmz/protocol@0.3.17':
+    resolution: {integrity: sha512-DoMPIlXJgniwLNM7e2wfDLEvTn9PNkk+FJ7s1kPS54P/KoVQCgslLC9fUr8lit6DREWPumJR+o35krdBkkJuyg==}
+    engines: {node: '>=20'}
+
+  '@vmz/vmz-darwin-arm64@0.3.17':
+    resolution: {integrity: sha512-i61Zujlbe2Ek2j8YgpLh79T/vYQu1w4FKzWPJhBh89rXJFhM326rKqHV3qHNJrgYvY+AJJBojl75zwWfFR6j9A==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@vmz/vmz-darwin-x64@0.3.17':
+    resolution: {integrity: sha512-uZzhCfoZhAECrfVD/Xydd39idN3mZJqqDphKBpzpwxMMwz3HTfxasklauqR4Iz1/grB1EorLp2SIhFbGxrbFHw==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@vmz/vmz-linux-arm64@0.3.17':
+    resolution: {integrity: sha512-OE//dDTFMhnRXo81cwyTU+nflRk7QvIU/5mR8j/WcRFXlRebq+3GOCmpsgcyjo2zM8a/cwRiRnezKjlyqVnOZw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@vmz/vmz-linux-x64@0.3.17':
+    resolution: {integrity: sha512-goxJ+e8euvWu3X6laWMADS4oR73DxlT/tvoFhT3wGiaZa6GDd703+ioVkv+nCDEkJc4zCjpeY1XQsmQ5p4bDlw==}
+    cpu: [x64]
+    os: [linux]
+
+  '@vmz/vmz-win32-arm64@0.3.17':
+    resolution: {integrity: sha512-5jrKMzgP5lmEZPmoVkYL1MhLI2yhf6+Je3hK0Mz+21eyiJIK7iQVB0vRzencr/aSZoAHSmynWpDwj6Fhqj9IyQ==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@vmz/vmz-win32-x64@0.3.17':
+    resolution: {integrity: sha512-Rbrz3Ez6rHmMpFIl5x2yPw6XztBE6QAy432Ryq8C7XtJFCDjGjP3sa6o+njyX/LMJmAFf8LjYhb2vS91SqXYpQ==}
+    cpu: [x64]
+    os: [win32]
+
+  '@vmz/vmz@0.3.17':
+    resolution: {integrity: sha512-YiRTL2qZ7xi0thjbcFWiwwPLTI3d25gXSTOEAo20Z/rwLXGWHHHfnf3zh7Yhg6vwdGnNKmWDG/F15yAN5Kn0dg==}
+    engines: {node: '>=24.12.0'}
+    hasBin: true
+    peerDependencies:
+      '@vmz/plugin-markdown-it': 0.3.17
+      '@vmz/test': 0.3.17
+      typescript: ^5.8.3
+    peerDependenciesMeta:
+      '@vmz/plugin-markdown-it':
+        optional: true
+      '@vmz/test':
+        optional: true
+      typescript:
+        optional: true
+
+  '@wae/commander@0.0.6':
+    resolution: {integrity: sha512-jRTwhX6iHPPQuchs4+BIfbrEjulGNV8w837jhwr+uxPTXOe+iWXw77OXz285jyEaLKZEGEq8FArJBW/YJWzFGA==}
+    engines: {node: '>=20'}
+
+  '@wae/commander@0.0.7':
+    resolution: {integrity: sha512-9YvQuL64SDEJb7MzG6h0ZysEHHRhRkV+aMIIUuCyoKRkhw9prLAfYrWhXKwZfFVCPMWyAF1KS9ulozNCzq1zow==}
+    engines: {node: '>=20'}
+
+  '@wae/wae-darwin-arm64@0.0.6':
+    resolution: {integrity: sha512-99x22K0QG5walZantcQ5ax8Z0fekmmJl58RgIeNbftSYixuQicVlGIU/ghDbx26tc7vXHTtbLeMM3yVtzxmFeQ==}
+    engines: {node: '>=20'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@wae/wae-linux-x64@0.0.6':
+    resolution: {integrity: sha512-0yyKBVWmeZ+p5+UTouHts9YAvxHyzqYXrNMjHpya8vP2bv4IcYgZ2H3FzkeaTXL6yKXDAUmIBtjuL6VialAytQ==}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [linux]
+
+  '@wae/wae-win32-x64@0.0.6':
+    resolution: {integrity: sha512-h/xZid5HEIH6CcNzHMcT9VsiZgU0W6lGKahj7rLpNFfNs9uHkkGkKMVPVtwrdpuctbAXz5bEcX2Ci7HAUtBX9A==}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [win32]
+
+  '@wae/wae@0.0.6':
+    resolution: {integrity: sha512-M55OfagQy8UKV9ETS/UwuZyl3tTj/xWdRjzbGwT3KWo9U4eCNOD9DEqW3LyiKlYjAC9+plq/tSgqYDBi4V0rBw==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  boolbase@2.0.0:
+    resolution: {integrity: sha512-DkVaaQHymRhpYEYo9x1oo7Q7B0Y6KJUsjm3c9eTyFDby4MHLBTwZ6ZDWBel5zrYxj1WsZgC5oLpiz+93MluXeA==}
+    engines: {node: '>=20.19.0'}
+
+  css-select@7.0.0:
+    resolution: {integrity: sha512-snmjEVXy+1LnwXdxhYvTMj1d9tOh4HxkA1YmoayVBeeyR2C14Pum7fcxJIm4SswYspVy866eYNwlH6xC3/VH5g==}
+    engines: {node: '>=20.19.0'}
+
+  css-what@8.0.0:
+    resolution: {integrity: sha512-DH0Bqq3DNp5tdOReuNyAA+Ev4Y2GS5FMbZpeTLP6C4CDi0h5nL0BmUPChXw3o/qbHLDWHl49sbNqQVY7bMSDdw==}
+    engines: {node: '>=20.19.0'}
+
+  cssomnom@0.1.12:
+    resolution: {integrity: sha512-nlsLjRxRN2RPomw3r+e+oD3KQBbEbKK0+oBUATbodf5N38FlOMg/5nqV0CdClNvpVsjFLikD63H6dgKTgeuuUg==}
+    engines: {node: '>=20.0.0'}
+
+  dom-serializer@2.0.0:
+    resolution: {integrity: sha512-wIkAryiqt/nV5EQKqQpo3SToSOV9J0DnbJqwK7Wv/Trc92zIAYZ4FlMu+JPFW1DfGFt81ZTCGgDEabffXeLyJg==}
+
+  dom-serializer@3.1.1:
+    resolution: {integrity: sha512-4MEa38/QexBob6gFNwu+EGdWvhJ1OKuNwdYY3Y3NyeWDQfnGeDYQUDfIRzWu5B5gsv03so2Uxd28YC6zrsx3Lw==}
+    engines: {node: '>=20.19.0'}
+
+  domelementtype@2.3.0:
+    resolution: {integrity: sha512-OLETBj6w0OsagBwdXnPdN0cnMfF9opN69co+7ZrbfPGrdpPVNBUj02spi6B1N7wChLQiPn4CSH/zJvXw56gmHw==}
+
+  domelementtype@3.0.0:
+    resolution: {integrity: sha512-umCQid3jKbDmVjx8jGaW7uUykm4DEUeyV21hPxNMo2nV955DhUThwqyOIDtreepP31hl84X7G5U9ZfsWvIB3Pg==}
+    engines: {node: '>=20.19.0'}
+
+  domhandler@5.0.3:
+    resolution: {integrity: sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w==}
+    engines: {node: '>= 4'}
+
+  domhandler@6.0.1:
+    resolution: {integrity: sha512-gYzvtM72ZtxQO0T048kd6HWSbbGCNOUwcnfQ01cqIJ4X2IYKFFHZ5mKvrQETcFXxsRObZulDaKmy//R7TPtsBg==}
+    engines: {node: '>=20.19.0'}
+
+  domutils@3.2.2:
+    resolution: {integrity: sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==}
+
+  domutils@4.0.2:
+    resolution: {integrity: sha512-qI4JLRKnSzqFqr7hAlS5xQDusBCjKSEG4t4+7aNrIQMHBcsC2TGEhuyABJdYkgSewL57PNLYEiibY2iPKhKpaA==}
+    engines: {node: '>=20.19.0'}
+
+  entities@4.5.0:
+    resolution: {integrity: sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw==}
+    engines: {node: '>=0.12'}
+
+  entities@7.0.1:
+    resolution: {integrity: sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA==}
+    engines: {node: '>=0.12'}
+
+  entities@8.1.0:
+    resolution: {integrity: sha512-kxL7msIffSuh9aaFAMD7rxAIuTRMAHMeBtgHW2yUdWw732ZNh4MehkF2gdjvtdmikkaIP9bFDDJOPlsvm7avrA==}
+    engines: {node: '>=20.19.0'}
+
+  html-escaper@3.0.3:
+    resolution: {integrity: sha512-RuMffC89BOWQoY0WKGpIhn5gX3iI54O6nRA0yC124NYVtzjmFWBIiFd8M0x+ZdX0P9R4lADg1mgP8C7PxGOWuQ==}
+
+  htmlparser2@10.1.0:
+    resolution: {integrity: sha512-VTZkM9GWRAtEpveh7MSF6SjjrpNVNNVJfFup7xTY3UpFtm67foy9HDVXneLtFVt4pMz5kZtgNcvCniNFb1hlEQ==}
+
+  linkedom@0.18.15:
+    resolution: {integrity: sha512-o0w7eD/SvoCao+pUi6dzocCLuMR11g4Tv/et0W2OUzwWmUcewntSzyl+Ua/K+0yKym0Y/Mav3nFAaI5Av5jvZg==}
+    engines: {node: '>=16'}
+    peerDependencies:
+      canvas: '>= 2'
+    peerDependenciesMeta:
+      canvas:
+        optional: true
+
+  nth-check@3.0.1:
+    resolution: {integrity: sha512-GX0gsdbGVCgnRgbeGaubfjpBXyYRWOOCVeYh08bSQvDZqxz5ndXs1OTfAt/h36G1xvI94YIspsI0sVFqAV9+RQ==}
+    engines: {node: '>=20.19.0'}
+
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+  uhyphen@0.2.0:
+    resolution: {integrity: sha512-qz3o9CHXmJJPGBdqzab7qAYuW8kQGKNEuoHFYrBwV6hWIMcpAmxDLXojcHfFr9US1Pe6zUswEIJIbLI610fuqA==}
+
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+
+snapshots:
+
+  '@types/node@22.20.5':
+    dependencies:
+      undici-types: 6.21.0
+
+  '@vmz/commander@0.3.17': {}
+
+  '@vmz/core@0.3.17':
+    dependencies:
+      linkedom: 0.18.15
+    optionalDependencies:
+      '@vmz/vmz-darwin-arm64': 0.3.17
+      '@vmz/vmz-darwin-x64': 0.3.17
+      '@vmz/vmz-linux-arm64': 0.3.17
+      '@vmz/vmz-linux-x64': 0.3.17
+      '@vmz/vmz-win32-arm64': 0.3.17
+      '@vmz/vmz-win32-x64': 0.3.17
+    transitivePeerDependencies:
+      - canvas
+
+  '@vmz/diagnostic@0.3.17': {}
+
+  '@vmz/plugin@0.3.17':
+    dependencies:
+      '@vmz/protocol': 0.3.17
+
+  '@vmz/protocol@0.3.17': {}
+
+  '@vmz/vmz-darwin-arm64@0.3.17':
+    optional: true
+
+  '@vmz/vmz-darwin-x64@0.3.17':
+    optional: true
+
+  '@vmz/vmz-linux-arm64@0.3.17':
+    optional: true
+
+  '@vmz/vmz-linux-x64@0.3.17':
+    optional: true
+
+  '@vmz/vmz-win32-arm64@0.3.17':
+    optional: true
+
+  '@vmz/vmz-win32-x64@0.3.17':
+    optional: true
+
+  '@vmz/vmz@0.3.17(typescript@5.9.3)':
+    dependencies:
+      '@vmz/commander': 0.3.17
+      '@vmz/core': 0.3.17
+      '@vmz/diagnostic': 0.3.17
+      '@vmz/plugin': 0.3.17
+      '@vmz/protocol': 0.3.17
+    optionalDependencies:
+      '@vmz/vmz-darwin-arm64': 0.3.17
+      '@vmz/vmz-darwin-x64': 0.3.17
+      '@vmz/vmz-linux-arm64': 0.3.17
+      '@vmz/vmz-linux-x64': 0.3.17
+      '@vmz/vmz-win32-arm64': 0.3.17
+      '@vmz/vmz-win32-x64': 0.3.17
+      typescript: 5.9.3
+    transitivePeerDependencies:
+      - canvas
+
+  '@wae/commander@0.0.6': {}
+
+  '@wae/commander@0.0.7': {}
+
+  '@wae/wae-darwin-arm64@0.0.6':
+    optional: true
+
+  '@wae/wae-linux-x64@0.0.6':
+    optional: true
+
+  '@wae/wae-win32-x64@0.0.6':
+    optional: true
+
+  '@wae/wae@0.0.6':
+    dependencies:
+      '@wae/commander': 0.0.6
+    optionalDependencies:
+      '@wae/wae-darwin-arm64': 0.0.6
+      '@wae/wae-linux-x64': 0.0.6
+      '@wae/wae-win32-x64': 0.0.6
+
+  boolbase@2.0.0: {}
+
+  css-select@7.0.0:
+    dependencies:
+      boolbase: 2.0.0
+      css-what: 8.0.0
+      domhandler: 6.0.1
+      domutils: 4.0.2
+      nth-check: 3.0.1
+
+  css-what@8.0.0: {}
+
+  cssomnom@0.1.12: {}
+
+  dom-serializer@2.0.0:
+    dependencies:
+      domelementtype: 2.3.0
+      domhandler: 5.0.3
+      entities: 4.5.0
+
+  dom-serializer@3.1.1:
+    dependencies:
+      domelementtype: 3.0.0
+      domhandler: 6.0.1
+      entities: 8.1.0
+
+  domelementtype@2.3.0: {}
+
+  domelementtype@3.0.0: {}
+
+  domhandler@5.0.3:
+    dependencies:
+      domelementtype: 2.3.0
+
+  domhandler@6.0.1:
+    dependencies:
+      domelementtype: 3.0.0
+
+  domutils@3.2.2:
+    dependencies:
+      dom-serializer: 2.0.0
+      domelementtype: 2.3.0
+      domhandler: 5.0.3
+
+  domutils@4.0.2:
+    dependencies:
+      dom-serializer: 3.1.1
+      domelementtype: 3.0.0
+      domhandler: 6.0.1
+
+  entities@4.5.0: {}
+
+  entities@7.0.1: {}
+
+  entities@8.1.0: {}
+
+  html-escaper@3.0.3: {}
+
+  htmlparser2@10.1.0:
+    dependencies:
+      domelementtype: 2.3.0
+      domhandler: 5.0.3
+      domutils: 3.2.2
+      entities: 7.0.1
+
+  linkedom@0.18.15:
+    dependencies:
+      css-select: 7.0.0
+      cssomnom: 0.1.12
+      html-escaper: 3.0.3
+      htmlparser2: 10.1.0
+      uhyphen: 0.2.0
+
+  nth-check@3.0.1:
+    dependencies:
+      boolbase: 2.0.0
+
+  typescript@5.9.3: {}
+
+  uhyphen@0.2.0: {}
+
+  undici-types@6.21.0: {}

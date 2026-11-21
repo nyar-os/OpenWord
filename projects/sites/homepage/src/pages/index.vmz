@@ -1,0 +1,856 @@
+<template>
+    <SiteShell page="home">
+        <section class="hero">
+            <div class="hero__copy">
+                <span class="eyebrow">In development · no public release</span>
+                <h1>
+                    Word documents that stay structured —<br />from outline to export.
+                </h1>
+                <p class="hero__sub">
+                    OpenWord keeps paragraphs, styles, tables and links in one
+                    inspectable document model. The authoring engine is not
+                    implemented yet, so every studio command reports
+                    <code>capability/not-implemented</code> instead of inventing
+                    a document.
+                </p>
+                <div class="hero__cta">
+                    <Link to="FeaturesPage" class="btn btn--primary">
+                        Explore features
+                    </Link>
+                    <Link to="RoadmapPage" class="btn btn--ghost">
+                        Read the roadmap
+                    </Link>
+                </div>
+                <p class="hero__note">
+                    docx · docm · dotx · dotm · doc · rtf · odt · txt · md · html · pdf
+                    — declared, not supported.
+                </p>
+            </div>
+
+            <div class="frame" aria-hidden="true">
+                <div class="frame__titlebar">
+                    <span class="frame__mark">W</span>
+                    <span class="frame__name">OpenWord Studio</span>
+                    <span class="frame__doc">No document open</span>
+                    <span class="frame__chip">capability/not-implemented</span>
+                </div>
+                <div class="frame__toolbar">
+                    <span class="frame__group">
+                        <span class="frame__label">File</span>
+                        <span class="frame__btn">New</span>
+                        <span class="frame__btn">Open</span>
+                        <span class="frame__btn">Save</span>
+                        <span class="frame__btn">Export</span>
+                    </span>
+                    <span class="frame__group">
+                        <span class="frame__label">View</span>
+                        <span class="frame__btn">Fit</span>
+                        <span class="frame__btn">100%</span>
+                        <span class="frame__btn">Zoom in</span>
+                    </span>
+                </div>
+                <div class="frame__body">
+                    <div class="frame__rail">
+                        <span class="frame__rail-title">Document</span>
+                        <span class="frame__rail-line">Title —</span>
+                        <span class="frame__rail-line">Revision —</span>
+                        <span class="frame__rail-title">Outline</span>
+                        <span class="frame__rail-line">Nothing is open.</span>
+                        <span class="frame__rail-title">Export targets</span>
+                        <span class="frame__rail-line">docx · unsupported</span>
+                        <span class="frame__rail-line">pdf · unsupported</span>
+                    </div>
+                    <div class="frame__canvas">
+                        <div class="frame__ruler-h">
+                            <span>0</span>
+                            <span>2</span>
+                            <span>4</span>
+                            <span>6</span>
+                            <span>8</span>
+                        </div>
+                        <div class="frame__canvas-body">
+                            <div class="frame__ruler-v">
+                                <span>0</span>
+                                <span>3</span>
+                                <span>6</span>
+                                <span>9</span>
+                            </div>
+                            <div class="frame__page">
+                                <span class="frame__page-mark">W</span>
+                                <b>No document open</b>
+                                <span>Create a document or open one at a path.</span>
+                                <span class="frame__page-note">The page renderer is not implemented.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="frame__status">
+                    <span>Ready</span>
+                    <span class="spacer"></span>
+                    <span>preview</span>
+                    <span>engine not connected</span>
+                    <span>zoom 100%</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="work">
+            <div class="section-head">
+                <div>
+                    <span class="eyebrow">Current state</span>
+                    <h2>What works today</h2>
+                </div>
+                <p>Three buckets, no rounding up. A green build is not a working product.</p>
+            </div>
+            <div class="cols-3">
+                <article class="work-card">
+                    <header>
+                        <span class="status-dot" data-state="active"></span>
+                        <h3>Framework</h3>
+                        <span class="chip chip--accent">available</span>
+                    </header>
+                    <ul>
+                        <li>Workspace build and static bundles.</li>
+                        <li>CLI surface and JSON-RPC entry points.</li>
+                        <li>Capability matrix that claims nothing.</li>
+                        <li>Studio shell with sidebar, canvas and inspector.</li>
+                        <li>Skills package scaffolding.</li>
+                    </ul>
+                </article>
+                <article class="work-card">
+                    <header>
+                        <span class="status-dot" data-state="done"></span>
+                        <h3>Contracts</h3>
+                        <span class="chip chip--accent">available</span>
+                    </header>
+                    <ul>
+                        <li>Document handle API and close lifecycle.</li>
+                        <li>Revisions carried on every summary and report.</li>
+                        <li>Stable error codes, including the not-implemented one.</li>
+                        <li>Per-format import, edit and export classification.</li>
+                    </ul>
+                </article>
+                <article class="work-card work-card--quiet">
+                    <header>
+                        <span class="status-dot" data-state="planned"></span>
+                        <h3>Not yet</h3>
+                        <span class="chip">not implemented</span>
+                    </header>
+                    <ul>
+                        <li>Authoring engine for paragraphs, tables and links.</li>
+                        <li>Template fill with placeholder coverage.</li>
+                        <li>DOCX round-trip and loss reporting.</li>
+                        <li>Page renderer and zoom controls.</li>
+                    </ul>
+                </article>
+            </div>
+        </section>
+
+        <section class="pillars">
+            <article class="pillar">
+                <div class="pillar__top">
+                    <span class="pillar__index">01</span>
+                    <h2>Authoring</h2>
+                    <span class="chip">planned</span>
+                </div>
+                <p>
+                    Sections, paragraphs, tables and links keep stable ids.
+                    Revisions are explicit, so one save cannot silently overwrite
+                    another edit. The editor that produces them is still being
+                    built.
+                </p>
+            </article>
+            <article class="pillar">
+                <div class="pillar__top">
+                    <span class="pillar__index">02</span>
+                    <h2>Templates</h2>
+                    <span class="chip">planned</span>
+                </div>
+                <p>
+                    Start from a branded template and fill named placeholders.
+                    Coverage and overflow are reported per section, and a value is
+                    never assumed to fit.
+                </p>
+            </article>
+            <article class="pillar">
+                <div class="pillar__top">
+                    <span class="pillar__index">03</span>
+                    <h2>Review</h2>
+                    <span class="chip">declared</span>
+                </div>
+                <p>
+                    Checks for styles, fonts, images, sections, tables and links
+                    are part of the contract. Findings point at a revision and an
+                    object id, never at a page number.
+                </p>
+            </article>
+        </section>
+
+        <section class="workflow">
+            <div class="section-head">
+                <div>
+                    <span class="eyebrow">Intended loop</span>
+                    <h2>Outline, author, inspect, export</h2>
+                </div>
+                <p>Each step is tagged by what exists: the contract, or a plan.</p>
+            </div>
+            <ol class="steps">
+                <li class="step">
+                    <span class="step__index">01</span>
+                    <div>
+                        <div class="step__top">
+                            <h3>Outline</h3>
+                            <span class="chip">declared</span>
+                        </div>
+                        <p>Sections and paragraph summaries are in the document contract. The studio already reserves a rail for them.</p>
+                    </div>
+                </li>
+                <li class="step">
+                    <span class="step__index">02</span>
+                    <div>
+                        <div class="step__top">
+                            <h3>Author</h3>
+                            <span class="chip">planned</span>
+                        </div>
+                        <p>Edit paragraphs, tables and links as objects. No authoring command is wired to a document handle yet.</p>
+                    </div>
+                </li>
+                <li class="step">
+                    <span class="step__index">03</span>
+                    <div>
+                        <div class="step__top">
+                            <h3>Inspect</h3>
+                            <span class="chip">declared</span>
+                        </div>
+                        <p>The six checks are declared in the matrix; the inspection call returns the stable not-implemented code.</p>
+                    </div>
+                </li>
+                <li class="step">
+                    <span class="step__index">04</span>
+                    <div>
+                        <div class="step__top">
+                            <h3>Export</h3>
+                            <span class="chip">declared</span>
+                        </div>
+                        <p>docx, dotx, pdf, html and md are declared targets. No writer exists, so no file is produced.</p>
+                    </div>
+                </li>
+            </ol>
+            <p class="workflow__note">Tags describe the contract, not a working action. No step runs end to end yet.</p>
+        </section>
+
+        <section class="formats">
+            <div class="section-head">
+                <div>
+                    <span class="eyebrow">Declared surface</span>
+                    <h2>Format matrix</h2>
+                </div>
+                <p>Every cell comes from the same capability matrix the studio reads at runtime.</p>
+            </div>
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Format</th>
+                            <th scope="col">Import</th>
+                            <th scope="col">Edit</th>
+                            <th scope="col">Export</th>
+                            <th scope="col">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="row in formats" :key="row.name">
+                            <td class="mono">.{{ row.name }}</td>
+                            <td>{{ row.importState }}</td>
+                            <td>{{ row.editState }}</td>
+                            <td>{{ row.exportState }}</td>
+                            <td><span class="status-dot" data-state="planned"></span> {{ row.status }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="formats__note">A suffix is not a support claim. Declared formats stay unsupported until the matrix says otherwise.</p>
+        </section>
+
+        <section class="band">
+            <div>
+                <span class="eyebrow">Status</span>
+                <h2>In development · no public release</h2>
+                <p>
+                    The contracts, capability matrix and studio shell exist.
+                    Authoring, template fill, DOCX exchange and the page renderer
+                    do not. The roadmap keeps that distinction in every phase.
+                </p>
+            </div>
+            <Link to="RoadmapPage" class="btn btn--ghost">
+                See the phases
+            </Link>
+        </section>
+
+        <section class="cta-band">
+            <div>
+                <h2>Follow the work</h2>
+                <p>The source repository is the only distribution today. There are no installers and no public release.</p>
+            </div>
+            <div class="cta-band__actions">
+                <Link to="FeaturesPage" class="btn btn--primary">
+                    Features
+                </Link>
+                <a class="btn btn--ghost" href="https://github.com/nyar-os/OpenWord" rel="noopener">
+                    Source
+                </a>
+            </div>
+        </section>
+    </SiteShell>
+</template>
+
+<style>
+.hero {
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 46px;
+    align-items: center;
+    padding: 40px 0 8px;
+}
+
+.hero h1 {
+    margin: 14px 0 16px;
+    font-size: 39px;
+}
+
+.hero__sub {
+    max-width: 560px;
+    margin: 0 0 24px;
+    color: var(--owd-muted);
+    font-size: 16px;
+}
+
+.hero__cta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.hero__note {
+    margin: 18px 0 0;
+    color: var(--owd-muted);
+    font-family: "Cascadia Code", "Consolas", monospace;
+    font-size: 10px;
+    line-height: 1.6;
+}
+
+.frame {
+    overflow: hidden;
+    border: 1px solid var(--owd-line);
+    border-radius: 12px;
+    background: var(--owd-surface);
+    box-shadow: 0 24px 48px rgba(40, 34, 24, 0.13);
+}
+
+.frame__titlebar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--owd-line);
+}
+
+.frame__mark {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    border-radius: 5px;
+    background: var(--owd-accent);
+    color: #f7f9fc;
+    font-family: "Iowan Old Style", Georgia, serif;
+    font-size: 11px;
+}
+
+.frame__name {
+    flex: none;
+    font-family: "Iowan Old Style", Georgia, serif;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.frame__doc {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--owd-muted);
+    font-size: 8px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.frame__chip {
+    margin-left: auto;
+    padding: 1px 6px;
+    border: 1px solid var(--owd-line);
+    border-radius: 999px;
+    background: var(--owd-surface-2);
+    color: var(--owd-muted);
+    font-family: "Cascadia Code", "Consolas", monospace;
+    font-size: 7px;
+    white-space: nowrap;
+}
+
+.frame__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--owd-line);
+    background: var(--owd-bg);
+}
+
+.frame__group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--owd-line);
+    border-radius: 6px;
+    background: var(--owd-surface-2);
+}
+
+.frame__label {
+    padding: 0 4px;
+    color: var(--owd-muted);
+    font-size: 7px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.frame__btn {
+    padding: 2px 5px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--owd-muted);
+    font-size: 8px;
+    white-space: nowrap;
+}
+
+.frame__body {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    min-height: 258px;
+}
+
+.frame__rail {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 7px;
+    border-right: 1px solid var(--owd-line);
+    background: var(--owd-surface-2);
+}
+
+.frame__rail-title {
+    margin-top: 4px;
+    color: var(--owd-muted);
+    font-size: 7px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+.frame__rail-line {
+    overflow: hidden;
+    color: var(--owd-muted);
+    font-size: 7px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.frame__canvas {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: radial-gradient(circle at 1px 1px, #ddd5c7 1px, transparent 0) 0 0 / 14px 14px, var(--owd-bg);
+}
+
+.frame__ruler-h {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 8px;
+    border-bottom: 1px solid var(--owd-line);
+    background: var(--owd-surface-2);
+    color: var(--owd-muted);
+    font-family: "Cascadia Code", "Consolas", monospace;
+    font-size: 7px;
+}
+
+.frame__canvas-body {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+}
+
+.frame__ruler-v {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 6px 3px;
+    border-right: 1px solid var(--owd-line);
+    background: var(--owd-surface-2);
+    color: var(--owd-muted);
+    font-family: "Cascadia Code", "Consolas", monospace;
+    font-size: 7px;
+}
+
+.frame__page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    width: min(224px, 68%);
+    aspect-ratio: 1 / 1.29;
+    margin: auto;
+    padding: 12px;
+    border: 1px solid var(--owd-line);
+    border-radius: 3px;
+    background: var(--owd-surface);
+    box-shadow: 0 10px 22px rgba(40, 34, 24, 0.1);
+    text-align: center;
+}
+
+.frame__page-mark {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: var(--owd-accent-soft);
+    color: var(--owd-accent);
+    font-family: "Iowan Old Style", Georgia, serif;
+    font-size: 9px;
+}
+
+.frame__page b {
+    font-family: "Iowan Old Style", Georgia, serif;
+    font-size: 10px;
+}
+
+.frame__page span {
+    color: var(--owd-muted);
+    font-size: 7px;
+    line-height: 1.4;
+}
+
+.frame__page-note {
+    max-width: 130px;
+}
+
+.frame__status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border-top: 1px solid var(--owd-line);
+    color: var(--owd-muted);
+    font-size: 7px;
+}
+
+.frame__status .spacer {
+    flex: 1;
+}
+
+.work {
+    margin-top: 58px;
+}
+
+.work-card {
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+    padding: 22px 20px;
+    border: 1px solid var(--owd-line);
+    border-radius: var(--owd-radius);
+    background: var(--owd-surface);
+}
+
+.work-card--quiet {
+    background: var(--owd-surface-2);
+}
+
+.work-card header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.work-card h3 {
+    margin: 0;
+    font-size: 19px;
+}
+
+.work-card header .chip {
+    margin-left: auto;
+}
+
+.work-card ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--owd-muted);
+    font-size: 14px;
+}
+
+.work-card li {
+    margin: 5px 0;
+}
+
+.pillars {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    margin-top: 22px;
+}
+
+.pillar {
+    padding: 24px 22px;
+    border: 1px solid var(--owd-line);
+    border-radius: var(--owd-radius);
+    background: var(--owd-surface);
+}
+
+.pillar__top {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.pillar__index {
+    color: var(--owd-accent);
+    font-family: "Iowan Old Style", Georgia, serif;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+}
+
+.pillar h2 {
+    margin: 0;
+    font-size: 21px;
+}
+
+.pillar__top .chip {
+    margin-left: auto;
+}
+
+.pillar p {
+    margin: 10px 0 0;
+    color: var(--owd-muted);
+    font-size: 14px;
+}
+
+.workflow {
+    margin-top: 54px;
+    padding-top: 30px;
+    border-top: 1px solid var(--owd-line);
+}
+
+.steps {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.step {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 10px;
+    padding: 18px 20px;
+    border: 1px solid var(--owd-line);
+    border-radius: var(--owd-radius);
+    background: var(--owd-surface);
+}
+
+.step__index {
+    color: var(--owd-accent);
+    font-family: "Iowan Old Style", Georgia, serif;
+    font-size: 18px;
+}
+
+.step__top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.step__top h3 {
+    margin: 0;
+    font-size: 17px;
+}
+
+.step p {
+    margin: 6px 0 0;
+    color: var(--owd-muted);
+    font-size: 14px;
+}
+
+.workflow__note {
+    margin: 14px 0 0;
+    color: var(--owd-muted);
+    font-size: 13px;
+}
+
+.formats {
+    margin-top: 54px;
+    padding-top: 30px;
+    border-top: 1px solid var(--owd-line);
+}
+
+.formats__note {
+    margin: 12px 0 0;
+    color: var(--owd-muted);
+    font-size: 13px;
+}
+
+.band {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    margin-top: 52px;
+    padding: 26px;
+    border: 1px solid var(--owd-line);
+    border-left: 3px solid var(--owd-accent);
+    border-radius: var(--owd-radius);
+    background: linear-gradient(90deg, var(--owd-accent-soft), var(--owd-surface) 62%);
+}
+
+.band h2 {
+    margin: 5px 0 8px;
+    font-size: 24px;
+}
+
+.band p {
+    max-width: 580px;
+    margin: 0;
+    color: var(--owd-muted);
+    font-size: 14px;
+}
+
+.cta-band {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    margin-top: 18px;
+    padding: 24px 26px;
+    border: 1px solid var(--owd-line);
+    border-radius: var(--owd-radius);
+    background: var(--owd-surface);
+}
+
+.cta-band h2 {
+    margin: 0 0 6px;
+    font-size: 22px;
+}
+
+.cta-band p {
+    max-width: 520px;
+    margin: 0;
+    color: var(--owd-muted);
+    font-size: 14px;
+}
+
+.cta-band__actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+    .hero {
+        grid-template-columns: 1fr;
+        gap: 30px;
+    }
+
+    .hero h1 {
+        font-size: 33px;
+    }
+
+    .frame {
+        max-width: 520px;
+    }
+
+    .pillars {
+        grid-template-columns: 1fr;
+    }
+
+    .steps {
+        grid-template-columns: 1fr;
+    }
+
+    .band,
+    .cta-band {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+@media (max-width: 620px) {
+    .hero h1 {
+        font-size: 29px;
+    }
+
+    .hero__sub {
+        font-size: 15px;
+    }
+
+    .frame__doc {
+        display: none;
+    }
+
+    .frame__body {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .frame__rail {
+        display: none;
+    }
+
+    .frame__page {
+        width: min(210px, 78%);
+    }
+
+    .band,
+    .cta-band {
+        padding: 20px;
+    }
+}
+</style>
+
+<script client>
+function formatRow(name) {
+    return { name, importState: "unsupported", editState: "unsupported", exportState: "unsupported", status: "declared" };
+}
+
+export default class IndexPage {
+    formats = [
+        formatRow("docx"),
+        formatRow("docm"),
+        formatRow("dotx"),
+        formatRow("dotm"),
+        formatRow("doc"),
+        formatRow("rtf"),
+        formatRow("odt"),
+        formatRow("txt"),
+        formatRow("md"),
+        formatRow("html"),
+        formatRow("pdf"),
+    ];
+
+    static meta() {
+        return {
+            title: "OpenWord — structured Word documents for people and agents",
+            description:
+                "OpenWord declares one document model for authoring, template fill and review. The authoring engine, renderer and DOCX exchange are not implemented yet.",
+        };
+    }
+}
+</script>

@@ -1,0 +1,348 @@
+<template>
+    <div class="app-root">
+        <slot />
+    </div>
+</template>
+
+<style>
+:root {
+    --owd-bg: #f6f4ef;
+    --owd-surface: #fffdf8;
+    --owd-surface-2: #eee9df;
+    --owd-ink: #1c1a17;
+    --owd-muted: #6d6458;
+    --owd-line: #d9d0c2;
+    --owd-accent: #3d5a80;
+    --owd-accent-soft: #dde5ef;
+    --owd-radius: 10px;
+    --owd-maxw: 1080px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: var(--owd-bg);
+    color: var(--owd-ink);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+}
+
+a {
+    color: var(--owd-accent);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+::selection {
+    background: var(--owd-accent-soft);
+    color: var(--owd-ink);
+}
+
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible {
+    outline: 2px solid var(--owd-accent);
+    outline-offset: 3px;
+    border-radius: 4px;
+}
+
+code {
+    padding: 2px 6px;
+    border-radius: 5px;
+    background: var(--owd-surface-2);
+    font-family: "Cascadia Code", "Consolas", monospace;
+    font-size: 0.9em;
+}
+
+.page-head {
+    padding: 40px 0 8px;
+}
+
+.page-head h1 {
+    margin: 0 0 10px;
+    font-size: 38px;
+}
+
+.lead {
+    max-width: 680px;
+    margin: 0;
+    color: var(--owd-muted);
+    font-size: 17px;
+}
+
+.section {
+    margin-top: 40px;
+    padding-top: 28px;
+    border-top: 1px solid var(--owd-line);
+}
+
+.section h2 {
+    margin: 0 0 10px;
+    font-size: 24px;
+}
+
+.section p {
+    max-width: 720px;
+    margin: 0 0 12px;
+}
+
+.section ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.section li {
+    margin: 6px 0;
+}
+
+.tag {
+    display: inline-block;
+    padding: 2px 9px;
+    border: 1px solid var(--owd-line);
+    border-radius: 999px;
+    color: var(--owd-muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    vertical-align: middle;
+}
+
+.cta-line {
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--owd-line);
+    color: var(--owd-muted);
+}
+
+.btn {
+    display: inline-block;
+    padding: 11px 24px;
+    border-radius: var(--owd-radius);
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.btn:hover {
+    text-decoration: none;
+}
+
+.btn--primary {
+    background: var(--owd-accent);
+    color: #f7f9fc;
+}
+
+.btn--primary:hover {
+    background: #34506f;
+}
+
+.btn--ghost {
+    border: 1px solid var(--owd-line);
+    color: var(--owd-ink);
+}
+
+.btn--ghost:hover {
+    border-color: var(--owd-accent);
+}
+
+.eyebrow {
+    display: inline-block;
+    color: var(--owd-accent);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.section-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+    margin: 0 0 18px;
+}
+
+.section-head h2 {
+    margin: 0;
+    font-size: 26px;
+}
+
+.section-head p {
+    max-width: 540px;
+    margin: 0;
+    color: var(--owd-muted);
+    font-size: 15px;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 9px;
+    border: 1px solid var(--owd-line);
+    border-radius: 999px;
+    background: var(--owd-surface-2);
+    color: var(--owd-muted);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.chip--accent {
+    border-color: var(--owd-accent-soft);
+    background: var(--owd-accent-soft);
+    color: var(--owd-accent);
+}
+
+.status-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--owd-muted);
+}
+
+.status-dot[data-state="done"] {
+    background: var(--owd-ink);
+}
+
+.status-dot[data-state="active"] {
+    background: var(--owd-accent);
+}
+
+.status-dot[data-state="planned"] {
+    background: var(--owd-line);
+}
+
+.table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--owd-line);
+    border-radius: var(--owd-radius);
+    background: var(--owd-surface);
+}
+
+.table {
+    width: 100%;
+    min-width: 520px;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.table th,
+.table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--owd-line);
+    text-align: left;
+    vertical-align: top;
+}
+
+.table th:first-child,
+.table td:first-child {
+    padding-left: 16px;
+}
+
+.table th:last-child,
+.table td:last-child {
+    padding-right: 16px;
+}
+
+.table thead th {
+    color: var(--owd-muted);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.table tbody tr:hover td {
+    background: var(--owd-bg);
+}
+
+.table .mono,
+.mono {
+    font-family: "Cascadia Code", "Consolas", monospace;
+    font-size: 0.92em;
+}
+
+.cols-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+}
+
+.cols-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px;
+}
+
+@media (max-width: 900px) {
+    .cols-3 {
+        grid-template-columns: 1fr;
+    }
+
+    .section-head {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+}
+
+@media (max-width: 620px) {
+    .cols-2 {
+        grid-template-columns: 1fr;
+    }
+
+    .page-head h1 {
+        font-size: 31px;
+    }
+
+    .section-head h2 {
+        font-size: 23px;
+    }
+
+    .table {
+        min-width: 460px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+</style>
+
+<script client>
+export default class Application {}
+</script>

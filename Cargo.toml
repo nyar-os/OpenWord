@@ -1,14 +1,22 @@
 [workspace]
 resolver = "2"
-members = ["projects/*"]
-default-members = [
-    "projects/sub_projects",
-]
-exclude = [
-    "projects/.DS_Store",
-]
+members = ["projects/sub_projects", "projects/crates/*"]
+default-members = ["projects/sub_projects"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MPL-2.0"
+authors = ["OpenWord Authors"]
+repository = "https://github.com/nyar-os/OpenWord"
 
 [workspace.dependencies]
+# Shared host facade for the Node-API and WebView surfaces. Cross-repo git
+# dependencies pin the full 40-character revision so local builds and CI resolve
+# the same commit.
+wae = { git = "https://github.com/doki-land/wae-framework.git", rev = "f92f818fde7174154d77a87b55a5e44b367034c9", default-features = false, features = ["webview"] }
+serde_json = "1"
 
 [profile.release]
 lto = true

@@ -1,0 +1,326 @@
+<template>
+    <SiteShell page="features">
+        <div class="page-head">
+            <span class="eyebrow">Features</span>
+            <h1>Features</h1>
+            <p class="lead">
+                Three lines share one document model: authoring, template fill and
+                structured review. Each feature below is tagged with what exists
+                today, so a declared name never reads as a working capability.
+            </p>
+        </div>
+
+        <section class="section">
+            <div class="section-head">
+                <div>
+                    <h2>Contracts first</h2>
+                </div>
+                <p>The layer that is already real. It describes documents; it does not build them yet.</p>
+            </div>
+            <div class="cols-2">
+                <article class="contract">
+                    <div class="contract__top">
+                        <h3>Document handle API</h3>
+                        <span class="chip chip--accent">declared</span>
+                    </div>
+                    <p>
+                        Create, open, save, inspect, export and close all take an
+                        explicit request. Create uses a title; open uses a path;
+                        save and export name their target and an overwrite flag.
+                    </p>
+                </article>
+                <article class="contract">
+                    <div class="contract__top">
+                        <h3>Revisions</h3>
+                        <span class="chip chip--accent">declared</span>
+                    </div>
+                    <p>
+                        Every summary and report carries the committed revision.
+                        A stale edit is rejected instead of silently overwriting
+                        work that happened in between.
+                    </p>
+                </article>
+                <article class="contract">
+                    <div class="contract__top">
+                        <h3>Stable error codes</h3>
+                        <span class="chip chip--accent">declared</span>
+                    </div>
+                    <p>
+                        Callers compare codes, not prose. Missing input, revision
+                        conflicts and unwired capabilities each keep one stable
+                        code, today including <code>capability/not-implemented</code>.
+                    </p>
+                </article>
+                <article class="contract">
+                    <div class="contract__top">
+                        <h3>Per-format matrix</h3>
+                        <span class="chip chip--accent">declared</span>
+                    </div>
+                    <p>
+                        Eleven formats each report import, edit and export as
+                        supported, partial or unsupported. Checks, renderers and
+                        export targets are classified the same way, item by item.
+                    </p>
+                </article>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <div>
+                    <h2>Feature areas</h2>
+                </div>
+                <p>Status chips describe the engine, not the ambition behind each area.</p>
+            </div>
+            <div class="areas">
+                <article class="area">
+                    <div class="area__top">
+                        <h3>Document authoring</h3>
+                        <span class="chip">not implemented</span>
+                    </div>
+                    <ul>
+                        <li>Sections, paragraphs, tables and links keep stable identities.</li>
+                        <li>Styles resolve by name instead of being copied into every paragraph.</li>
+                        <li>Edits run as transactions, so a failed change leaves no half document.</li>
+                        <li>No authoring call reaches a live document handle yet.</li>
+                    </ul>
+                </article>
+                <article class="area">
+                    <div class="area__top">
+                        <h3>Template fill</h3>
+                        <span class="chip">not implemented</span>
+                    </div>
+                    <ul>
+                        <li>Named placeholders report filled, skipped or ambiguous.</li>
+                        <li>Long values report overflow per section instead of shrinking text.</li>
+                        <li>Styles come from the template so generated pages keep the brand.</li>
+                        <li>No template renderer exists to prove any of it.</li>
+                    </ul>
+                </article>
+                <article class="area">
+                    <div class="area__top">
+                        <h3>Structured review</h3>
+                        <span class="chip">checks declared</span>
+                    </div>
+                    <ul>
+                        <li>Six checks are declared: styles, fonts, images, sections, tables and links.</li>
+                        <li>Findings carry a revision and an object id, not a page number.</li>
+                        <li>Review happens per section; revisions target one object at a time.</li>
+                        <li>Inspection currently returns the stable not-implemented code.</li>
+                    </ul>
+                </article>
+                <article class="area">
+                    <div class="area__top">
+                        <h3>Format exchange</h3>
+                        <span class="chip">declared</span>
+                    </div>
+                    <ul>
+                        <li>DOCX leads the exchange list, followed by template and legacy formats.</li>
+                        <li>Import, edit and export are separate declarations, never one word.</li>
+                        <li>Export targets are docx, dotx, pdf, html and md.</li>
+                        <li>No reader or writer is wired, so every cell stays unsupported.</li>
+                    </ul>
+                </article>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <div>
+                    <h2>Command surface</h2>
+                </div>
+                <p>What each surface reports today, before any document work starts.</p>
+            </div>
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Surface</th>
+                            <th scope="col">Today</th>
+                            <th scope="col">Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><b>CLI</b></td>
+                            <td>Scaffold</td>
+                            <td><code>capabilities</code> prints the matrix; document commands reject with the stable code.</td>
+                        </tr>
+                        <tr>
+                            <td><b>SDK</b></td>
+                            <td>Types only</td>
+                            <td>Session, document, inspection and export types are declared; every document call rejects.</td>
+                        </tr>
+                        <tr>
+                            <td><b>Studio</b></td>
+                            <td>Shell</td>
+                            <td>Sidebar, canvas and inspector render; no document can be created, opened or painted.</td>
+                        </tr>
+                        <tr>
+                            <td><b>Skills</b></td>
+                            <td>Scaffold</td>
+                            <td>The package exists; no authoring or review task can finish without the engine.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <div>
+                    <h2>Format honesty</h2>
+                </div>
+            </div>
+            <p class="prose">
+                DOCX is the first exchange format, and it is never described as
+                supported just because a package opens. Each object family, style
+                and section feature is classified separately, with a loss report
+                attached where anything is dropped. Legacy binary
+                <code>.doc</code>, RTF, ODT and fixed PDF are separate
+                capabilities, not footnotes to DOCX.
+            </p>
+            <div class="format-chips">
+                <span class="chip mono">docx</span>
+                <span class="chip mono">docm</span>
+                <span class="chip mono">dotx</span>
+                <span class="chip mono">dotm</span>
+                <span class="chip mono">doc</span>
+                <span class="chip mono">rtf</span>
+                <span class="chip mono">odt</span>
+                <span class="chip mono">txt</span>
+                <span class="chip mono">md</span>
+                <span class="chip mono">html</span>
+                <span class="chip mono">pdf</span>
+            </div>
+            <p class="note">All eleven names are declared and currently unsupported. A suffix is not a support claim.</p>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <div>
+                    <h2>Current state</h2>
+                </div>
+            </div>
+            <ul class="state-list">
+                <li>Workspace build, static homepage and studio bundle succeed.</li>
+                <li>Capability matrix, contracts and stable errors are frozen.</li>
+                <li>Authoring, template fill, DOCX round-trip, rendering and export are not implemented.</li>
+                <li>There is no public release and no installer to download.</li>
+            </ul>
+        </section>
+
+        <p class="cta-line">
+            Want the exact gate order?
+            <Link to="RoadmapPage">
+                Read the roadmap
+            </Link>
+        </p>
+    </SiteShell>
+</template>
+
+<style>
+.contract {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 20px;
+    border: 1px solid var(--owd-line);
+    border-radius: var(--owd-radius);
+    background: var(--owd-surface);
+}
+
+.contract__top,
+.area__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.contract h3,
+.area h3 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.contract p {
+    margin: 0;
+    color: var(--owd-muted);
+    font-size: 14px;
+}
+
+.areas {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.area {
+    padding: 20px;
+    border: 1px solid var(--owd-line);
+    border-radius: var(--owd-radius);
+    background: var(--owd-surface);
+}
+
+.area ul {
+    margin: 10px 0 0;
+    padding-left: 18px;
+    color: var(--owd-muted);
+    font-size: 14px;
+}
+
+.area li {
+    margin: 5px 0;
+}
+
+.prose {
+    max-width: 760px;
+    margin: 0;
+    color: var(--owd-ink);
+    font-size: 15px;
+}
+
+.format-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 16px;
+}
+
+.note {
+    margin: 12px 0 0;
+    color: var(--owd-muted);
+    font-size: 13px;
+}
+
+.state-list {
+    max-width: 760px;
+    margin: 0;
+    padding-left: 20px;
+    color: var(--owd-muted);
+    font-size: 15px;
+}
+
+.state-list li {
+    margin: 7px 0;
+}
+
+@media (max-width: 900px) {
+    .areas {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+<script client>
+export default class FeaturesPage {
+    static meta() {
+        return {
+            title: "Features — OpenWord",
+            description:
+                "Document contracts, format classification and the studio surface that exist today, with authoring, template fill and DOCX exchange marked as not implemented.",
+        };
+    }
+}
+</script>

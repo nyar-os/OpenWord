@@ -1,0 +1,305 @@
+<template>
+    <SiteShell page="roadmap">
+        <div class="page-head">
+            <span class="eyebrow">Roadmap</span>
+            <h1>Roadmap</h1>
+            <p class="lead">
+                The phases below are gates, not marketing dates. A phase is done
+                when its evidence exists; until then, the capability matrix says
+                so.
+            </p>
+        </div>
+
+        <div class="legend" aria-label="Phase legend">
+            <span><span class="status-dot" data-state="done"></span> done</span>
+            <span><span class="status-dot" data-state="active"></span> active</span>
+            <span><span class="status-dot" data-state="planned"></span> planned</span>
+        </div>
+
+        <section class="notice">
+            <b>No public release yet.</b>
+            There are no installers to download. The source declares the document
+            contracts, the format registry, the CLI surface and the studio shell;
+            authoring, templates and DOCX exchange are still being built.
+        </section>
+
+        <ol class="phases">
+            <li data-state="done">
+                <span class="phase__id">P0</span>
+                <div>
+                    <h2>Freeze the document model and contracts</h2>
+                    <p>
+                        Object identities, revisions, the project container, the
+                        API surface, error codes and the DOCX capability and loss
+                        matrix.
+                    </p>
+                    <span class="chip">done</span>
+                </div>
+            </li>
+            <li data-state="active">
+                <span class="phase__id">P1</span>
+                <div>
+                    <h2>Minimal authoring and the project container</h2>
+                    <p>
+                        Create and open a native project, edit paragraphs, tables
+                        and links, save and reopen with the same revision, and show
+                        the structure in the studio shell.
+                    </p>
+                    <span class="chip chip--accent">active</span>
+                </div>
+            </li>
+            <li>
+                <span class="phase__id">P2</span>
+                <div>
+                    <h2>DOCX round trip</h2>
+                    <p>
+                        Import, edit and export DOCX with a per-object support
+                        matrix, plus an independent reopen check.
+                    </p>
+                    <span class="chip">planned</span>
+                </div>
+            </li>
+            <li>
+                <span class="phase__id">P3</span>
+                <div>
+                    <h2>Template fill and the review loop</h2>
+                    <p>
+                        Named placeholders, style-preserving fill, inspection
+                        findings with locations and revisions that target a single
+                        object.
+                    </p>
+                    <span class="chip">planned</span>
+                </div>
+            </li>
+            <li>
+                <span class="phase__id">P4</span>
+                <div>
+                    <h2>Skills acceptance</h2>
+                    <p>
+                        Install the skills package in a clean environment and
+                        finish real authoring and review tasks with editable
+                        output.
+                    </p>
+                    <span class="chip">planned</span>
+                </div>
+            </li>
+            <li>
+                <span class="phase__id">P5</span>
+                <div>
+                    <h2>Rendering and previews</h2>
+                    <p>
+                        Section rendering to SVG, PNG and PDF for review, without
+                        turning the document itself into pictures.
+                    </p>
+                    <span class="chip">planned</span>
+                </div>
+            </li>
+            <li>
+                <span class="phase__id">P6</span>
+                <div>
+                    <h2>Standalone and suite releases</h2>
+                    <p>
+                        Ship OpenWord on its own and as part of the OpenOffice
+                        suite, built from one engine.
+                    </p>
+                    <span class="chip">planned</span>
+                </div>
+            </li>
+        </ol>
+
+        <section class="section">
+            <div class="section-head">
+                <div>
+                    <h2>Working today</h2>
+                </div>
+                <p>The difference between a shipped scaffold and a working document engine.</p>
+            </div>
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Surface</th>
+                            <th scope="col">State</th>
+                            <th scope="col">Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><b>Workspace build</b></td>
+                            <td><span class="status-dot" data-state="done"></span> available</td>
+                            <td>The workspace builds static bundles for the studio and the homepage.</td>
+                        </tr>
+                        <tr>
+                            <td><b>CLI</b></td>
+                            <td><span class="status-dot" data-state="done"></span> available</td>
+                            <td><code>capabilities</code> prints the matrix; document commands reject with a stable code.</td>
+                        </tr>
+                        <tr>
+                            <td><b>Capability matrix</b></td>
+                            <td><span class="status-dot" data-state="done"></span> available</td>
+                            <td>Eleven formats, six checks, three renderers and five export targets, all classified.</td>
+                        </tr>
+                        <tr>
+                            <td><b>Studio shell</b></td>
+                            <td><span class="status-dot" data-state="done"></span> available</td>
+                            <td>Sidebar, canvas, inspector and diagnostics render without fabricating a document.</td>
+                        </tr>
+                        <tr>
+                            <td><b>Skills package</b></td>
+                            <td><span class="status-dot" data-state="done"></span> available</td>
+                            <td>Scaffolding only; no authoring or review task can finish without the engine.</td>
+                        </tr>
+                        <tr>
+                            <td><b>Authoring engine</b></td>
+                            <td><span class="status-dot" data-state="planned"></span> not implemented</td>
+                            <td>No paragraphs, tables or links can be edited yet.</td>
+                        </tr>
+                        <tr>
+                            <td><b>Template fill</b></td>
+                            <td><span class="status-dot" data-state="planned"></span> not implemented</td>
+                            <td>No placeholder coverage or overflow report exists.</td>
+                        </tr>
+                        <tr>
+                            <td><b>DOCX round-trip</b></td>
+                            <td><span class="status-dot" data-state="planned"></span> not implemented</td>
+                            <td>No reader, writer or independent reopen check exists.</td>
+                        </tr>
+                        <tr>
+                            <td><b>Export writers</b></td>
+                            <td><span class="status-dot" data-state="planned"></span> not implemented</td>
+                            <td>docx, dotx, pdf, html and md are declared targets with no producer.</td>
+                        </tr>
+                        <tr>
+                            <td><b>Page renderer</b></td>
+                            <td><span class="status-dot" data-state="planned"></span> not implemented</td>
+                            <td>The canvas stays a placeholder; no text is painted.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Where the tests live</h2>
+            <p>
+                DOCX corpora, visual baselines, independent round trips, template
+                fixtures and skill tasks belong to the product test suite. The
+                shared engine keeps only basic smoke checks, so a green engine
+                build is not presented as a finished product.
+            </p>
+        </section>
+
+        <p class="cta-line">
+            Follow the work in the
+            <a href="https://github.com/nyar-os/OpenWord" rel="noopener">
+                source repository
+            </a>
+            .
+        </p>
+    </SiteShell>
+</template>
+
+<style>
+.legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 22px;
+    color: var(--owd-muted);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.notice {
+    margin-top: 16px;
+    padding: 18px 22px;
+    border: 1px solid var(--owd-line);
+    border-left: 3px solid var(--owd-accent);
+    border-radius: var(--owd-radius);
+    background: var(--owd-surface);
+    color: var(--owd-muted);
+    font-size: 15px;
+}
+
+.notice b {
+    color: var(--owd-ink);
+}
+
+.phases {
+    display: grid;
+    gap: 14px;
+    margin: 30px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.phases li {
+    display: grid;
+    grid-template-columns: 58px 1fr;
+    gap: 16px;
+    padding: 20px 22px;
+    border: 1px solid var(--owd-line);
+    border-radius: var(--owd-radius);
+    background: var(--owd-surface);
+}
+
+.phase__id {
+    color: var(--owd-muted);
+    font-family: "Iowan Old Style", Georgia, serif;
+    font-size: 20px;
+}
+
+.phases h2 {
+    margin: 0 0 4px;
+    font-size: 20px;
+}
+
+.phases p {
+    margin: 0 0 10px;
+    color: var(--owd-muted);
+    font-size: 15px;
+}
+
+.phases li[data-state="done"] {
+    border-left: 3px solid var(--owd-accent);
+}
+
+.phases li[data-state="done"] .phase__id {
+    color: var(--owd-accent);
+}
+
+.phases li[data-state="active"] {
+    border-left: 3px solid var(--owd-accent);
+    background: linear-gradient(90deg, var(--owd-accent-soft), var(--owd-surface) 55%);
+}
+
+.phases li[data-state="active"] .phase__id {
+    color: var(--owd-accent);
+}
+
+@media (max-width: 620px) {
+    .phases li {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+}
+</style>
+
+<script client>
+export default class RoadmapPage {
+    static meta() {
+        return {
+            title: "Roadmap — OpenWord",
+            description:
+                "The P0–P6 gates for OpenWord: document contracts, minimal authoring, DOCX round trip, template fill, skills and standalone releases, with what works today.",
+        };
+    }
+}
+</script>

@@ -1,11 +1,32 @@
 {
+    "name": "open-word-workspace",
     "private": true,
+    "type": "module",
+    "packageManager": "pnpm@10.28.0",
+    "description": "OpenWord workspace: .docx authoring, template documents, document review, and agent skills",
+    "keywords": ["docx", "word", "document", "authoring", "template"],
+    "license": "MPL-2.0",
+    "repository": "https://github.com/nyar-os/OpenWord",
     "scripts": {
         "doc": "cargo doc --no-deps --all-features",
-        "test": "cargo test --release",
+        "test:rust": "cargo test --release",
         "fmt": "cargo fmt --all",
         "p": "git push && git push --tags --prune",
         "reset": "git reset Head~ --soft",
-        "u": "cargo upgrade --workspace"
+        "u": "cargo upgrade --workspace",
+        "check:rust": "cargo fmt -p open-word-document -p open-word-napi -- --check && cargo clippy -p open-word-document -p open-word-napi --all-targets -- -D warnings && cargo test -p open-word-document -p open-word-napi",
+        "build:napi": "wae native build",
+        "build:ts": "pnpm --filter @wae/open-word run build",
+        "build:ui": "pnpm --filter @wae/open-word-ui run build",
+        "build": "wae build",
+        "stage:native": "wae native stage",
+        "typecheck": "pnpm -r --filter \"./projects/packages/*\" run typecheck",
+        "test": "pnpm -r --filter \"./projects/packages/*\" run test",
+        "gui": "pnpm run build && pnpm --filter @wae/open-word exec node ./dist/cli.js gui"
+    },
+    "devDependencies": {
+        "@types/node": "^22.20.4",
+        "@wae/wae": "0.0.6",
+        "typescript": "^5.9.2"
     }
 }

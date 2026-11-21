@@ -1,0 +1,151 @@
+<template>
+    <footer class="site-footer">
+        <div class="site-footer__inner">
+            <div class="site-footer__brand">
+                <span class="site-footer__mark">OpenWord</span>
+                <p class="site-footer__tag">
+                    Word documents for authoring, template fill and structured
+                    review, built on one document model.
+                </p>
+            </div>
+            <nav aria-label="Product" class="footer-group">
+                <b>Product</b>
+                <Link to="FeaturesPage">
+                    Features
+                </Link>
+                <Link to="RoadmapPage">
+                    Roadmap
+                </Link>
+            </nav>
+            <nav aria-label="Developers" class="footer-group">
+                <b>Developers</b>
+                <a href="https://github.com/nyar-os/OpenWord" rel="noopener">
+                    CLI
+                </a>
+                <a href="https://github.com/nyar-os/OpenWord" rel="noopener">
+                    SDK
+                </a>
+                <a href="https://github.com/nyar-os/OpenWord" rel="noopener">
+                    Skills
+                </a>
+            </nav>
+            <nav aria-label="Project" class="footer-group">
+                <b>Project</b>
+                <a href="https://github.com/nyar-os/OpenWord" rel="noopener">
+                    Source code
+                </a>
+                <a href="https://github.com/nyar-os/OpenWord/issues" rel="noopener">
+                    Issues
+                </a>
+                <a href="https://github.com/nyar-os/OpenWord/releases" rel="noopener">
+                    Releases
+                </a>
+            </nav>
+            <p class="site-footer__note">
+                <span>MPL-2.0 licensed · Built with VMZ</span>
+                <span class="site-footer__release">No public release yet</span>
+            </p>
+        </div>
+    </footer>
+</template>
+
+<style>
+.site-footer {
+    margin-top: 64px;
+    border-top: 1px solid var(--owd-line);
+    background: var(--owd-surface);
+}
+
+.site-footer__inner {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 30px;
+    max-width: var(--owd-maxw);
+    margin: 0 auto;
+    padding: 40px 24px 28px;
+}
+
+.site-footer__mark {
+    font-family: "Iowan Old Style", Georgia, serif;
+    font-weight: 600;
+    font-size: 17px;
+}
+
+.site-footer__tag {
+    margin: 8px 0 0;
+    max-width: 300px;
+    color: var(--owd-muted);
+    font-size: 14px;
+}
+
+.footer-group {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.footer-group b {
+    margin-bottom: 3px;
+    color: var(--owd-muted);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.footer-group a {
+    color: var(--owd-ink);
+    font-size: 14px;
+}
+
+.site-footer__note {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin: 6px 0 0;
+    padding-top: 15px;
+    border-top: 1px solid var(--owd-line);
+    color: var(--owd-muted);
+    font-size: 13px;
+}
+
+.site-footer__release {
+    padding: 2px 9px;
+    border: 1px solid var(--owd-line);
+    border-radius: 999px;
+    background: var(--owd-surface-2);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+    .site-footer__inner {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .site-footer__brand {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 620px) {
+    .site-footer__inner {
+        grid-template-columns: 1fr;
+        gap: 22px;
+        padding: 32px 18px 24px;
+    }
+
+    .site-footer__note {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+}
+</style>
+
+<script client>
+export default class SiteFooter {}
+</script>

@@ -1,0 +1,1126 @@
+<template>
+    <div class="studio">
+        <header class="titlebar">
+            <div class="brand">
+                <span class="mark">W</span>
+                <div class="brand-copy">
+                    <h1>OpenWord Studio</h1>
+                    <p class="doc-line" :title="docLine()">{{ docLine() }}</p>
+                </div>
+                <span class="rev-chip" title="Revision reported by the host">{{ revisionLabel() }}</span>
+            </div>
+
+            <div class="titlebar-actions">
+                <div class="cmd-group" role="group" aria-label="File">
+                    <span class="cmd-group__label">File</span>
+                    <button type="button" class="btn" :disabled="!hostReady" :title="hostReady ? 'Create a document' : 'Native host is not connected'" @click="create">New</button>
+                    <button type="button" class="btn" :disabled="!hostReady" :title="hostReady ? 'Open a document at the path above' : 'Native host is not connected'" @click="open">Open</button>
+                    <button type="button" class="btn" :disabled="!hostReady || !doc" :title="doc ? 'Save the open document' : 'No document is open'" @click="save">Save</button>
+                    <div class="export-anchor">
+                        <button type="button" class="btn" aria-haspopup="dialog" :aria-expanded="exportOpen ? 'true' : 'false'" :disabled="!hostReady" @click="toggleExport">Export</button>
+                        <div class="export-panel" v-if="exportOpen" role="dialog" aria-label="Export document">
+                            <div class="panel-head">
+                                <b>Export document</b>
+                                <span class="chip">declared</span>
+                            </div>
+                            <label class="field" for="owd-export-format">
+                                <span>Format</span>
+                                <select id="owd-export-format" :value="exportFormat" :disabled="!exportReady()" @change="onFormatChange">
+                                    <option v-for="target in exportTargetRows()" :key="target.name" :value="target.name">{{ target.name }} · {{ target.status }}</option>
+                                </select>
+                            </label>
+                            <div class="field field--stack">
+                                <span>Target</span>
+                                <code class="readout" :title="exportTargetPath()">{{ exportTargetPath() || "No target path" }}</code>
+                            </div>
+                            <p class="panel-note">Export needs the document engine. Every target is declared; none is implemented.</p>
+                            <div class="panel-actions">
+                                <button type="button" class="btn btn--primary" :disabled="!exportReady()" @click="exportCurrent">Export</button>
+                                <button type="button" class="btn" @click="toggleExport">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="cmd-group" role="group" aria-label="Document">
+                    <span class="cmd-group__label">Document</span>
+                    <button type="button" class="btn" :disabled="!hostReady || !doc" :title="doc ? 'Close the open document' : 'No document is open'" @click="closeDocument">Close document</button>
+                </div>
+
+                <div class="cmd-group" role="group" aria-label="View">
+                    <span class="cmd-group__label">View</span>
+                    <button type="button" class="btn" disabled title="Page renderer is not implemented">Fit</button>
+                    <button type="button" class="btn" disabled title="Page renderer is not implemented">Zoom out</button>
+                    <button type="button" class="btn btn--readout" disabled title="Page renderer is not implemented">100%</button>
+                    <button type="button" class="btn" disabled title="Page renderer is not implemented">Zoom in</button>
+                </div>
+            </div>
+
+            <div class="titlebar-right">
+                <span class="conn-pill" :class="{ 'conn-pill--live': hostReady }">
+                    <span class="dot" :class="{ 'dot--on': hostReady }"></span>{{ hostReady ? "Native host" : "Preview" }}
+                </span>
+                <button type="button" class="btn btn--square" aria-label="Keyboard shortcuts" aria-haspopup="dialog" :aria-expanded="shortcutsOpen ? 'true' : 'false'" title="Keyboard shortcuts" @click="toggleShortcuts">?</button>
+                <button type="button" class="btn btn--ghost" :disabled="!hostReady" :title="hostReady ? 'Close the window' : 'Native host is not connected'" @click="quit">Quit</button>
+            </div>
+        </header>
+
+        <section class="contextbar" aria-label="Document path">
+            <label class="path-field" for="owd-path">
+                <span>Path</span>
+                <input id="owd-path" class="path-input" type="text" spellcheck="false" autocomplete="off" :value="path" placeholder="C:\documents\report.oword" @input="onPathInput" />
+            </label>
+            <p class="path-hint">Type a path; the native file picker is not implemented.</p>
+            <span class="spacer"></span>
+            <span class="pill">{{ hostReady ? "Native host" : "Preview" }}</span>
+            <span class="pill">{{ engineState() }}</span>
+        </section>
+
+        <section class="preview-banner" v-if="!hostReady" role="note">
+            Preview mode: the studio runs outside the native host, so no document can be created, opened or saved. Capabilities stay declared only.
+        </section>
+
+        <div class="workspace">
+            <aside class="sidebar" aria-label="Document structure">
+                <section class="panel">
+                    <div class="panel-head">
+                        <h2>Document</h2>
+                    </div>
+                    <dl class="facts" v-if="doc">
+                        <div class="fact"><dt>Title</dt><dd :title="docTitle()">{{ docTitle() }}</dd></div>
+                        <div class="fact"><dt>Id</dt><dd class="mono" :title="doc.id">{{ doc.id }}</dd></div>
+                        <div class="fact"><dt>Revision</dt><dd class="mono">{{ doc.revision }}</dd></div>
+                        <div class="fact"><dt>Path</dt><dd class="mono" :title="documentPath()">{{ documentPath() }}</dd></div>
+                        <div class="fact"><dt>Sections</dt><dd class="mono">{{ sectionCount() }}</dd></div>
+                        <div class="fact"><dt>Paragraphs</dt><dd class="mono">{{ paragraphCount() }}</dd></div>
+                        <div class="fact"><dt>Tables</dt><dd class="mono">{{ tableCount() }}</dd></div>
+                    </dl>
+                    <p class="empty" v-else>Nothing is open.</p>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head">
+                        <h2>Outline</h2>
+                        <span class="panel-count">{{ outline.length }}</span>
+                    </div>
+                    <div class="outline" v-if="outline.length">
+                        <button type="button" v-for="section in outline" :key="section.id" class="outline-item" :class="{ 'outline-item--active': section.id === activeSectionId }" @click="selectSection(section.id)">
+                            <span class="outline-index">{{ section.index + 1 }}</span>
+                            <span class="outline-title">{{ section.title || "Untitled section" }}</span>
+                        </button>
+                    </div>
+                    <p class="empty" v-else>No outline. Sections appear only after the host returns a document.</p>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head">
+                        <h2>Export targets</h2>
+                        <span class="panel-count">{{ exportTargetCount() }}</span>
+                    </div>
+                    <div class="targets" v-if="exportTargetRows().length">
+                        <div class="target-row" v-for="target in exportTargetRows()" :key="target.name">
+                            <span class="dot" :class="{ 'dot--on': target.supported }"></span>
+                            <span class="target-name">{{ target.name }}</span>
+                            <span class="target-status">{{ target.status }}</span>
+                        </div>
+                    </div>
+                    <p class="empty" v-else>Capabilities load when the native host connects.</p>
+                    <p class="panel-note" v-if="exportTargetRows().length && !hasSupportedTargets()">Declared targets. None are implemented yet.</p>
+                </section>
+            </aside>
+
+            <main class="canvas-area">
+                <div class="canvas-bar">
+                    <b>Page</b>
+                    <span>{{ activeSectionTitle() }}</span>
+                    <span class="spacer"></span>
+                    <span class="zoom-readout">zoom 100%</span>
+                    <span class="chip chip--off">renderer offline</span>
+                </div>
+
+                <div class="canvas-body">
+                    <div class="ruler-corner" aria-hidden="true"></div>
+                    <div class="ruler ruler--h" aria-hidden="true">
+                        <span v-for="tick in horizontalTicks()" :key="tick.key">{{ tick.label }}</span>
+                    </div>
+                    <div class="ruler ruler--v" aria-hidden="true">
+                        <span v-for="tick in verticalTicks()" :key="tick.key">{{ tick.label }}</span>
+                    </div>
+                    <div class="paper-scroll">
+                        <div class="paper" v-if="doc">
+                            <span class="paper-mark">W</span>
+                            <h2 class="paper-title">{{ docTitle() }}</h2>
+                            <p class="paper-meta">{{ sectionCount() }} sections · {{ paragraphCount() }} paragraphs · {{ tableCount() }} tables</p>
+                            <p class="paper-note">The page renderer is not implemented, so no text is painted. These counts come from the host document only.</p>
+                        </div>
+                        <div class="paper paper--empty" v-else>
+                            <span class="paper-mark">W</span>
+                            <h2 class="paper-title">No document open</h2>
+                            <p class="paper-meta">Create a document or open one at a path to see its structure.</p>
+                            <div class="paper-actions">
+                                <button type="button" class="btn btn--primary" :disabled="!hostReady" :title="hostReady ? 'Create a document' : 'Native host is not connected'" @click="create">New document</button>
+                                <button type="button" class="btn" :disabled="!hostReady" :title="hostReady ? 'Open the path above' : 'Native host is not connected'" @click="open">Open path</button>
+                            </div>
+                            <p class="paper-note">The page renderer is not implemented, so no text is painted.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="toolstrip" aria-label="Editing tools">
+                    <span class="toolstrip__label">Tools</span>
+                    <button type="button" class="tool" disabled title="Not implemented">Select</button>
+                    <button type="button" class="tool" disabled title="Not implemented">Text</button>
+                    <button type="button" class="tool" disabled title="Not implemented">Table</button>
+                    <button type="button" class="tool" disabled title="Not implemented">Link</button>
+                    <span class="badge">capability/not-implemented</span>
+                </div>
+            </main>
+
+            <aside class="inspector" aria-label="Inspector">
+                <div class="tabs" role="tablist">
+                    <button type="button" class="tab" role="tab" :class="{ 'tab--active': activeTab === 'properties' }" :aria-selected="activeTab === 'properties' ? 'true' : 'false'" @click="setTab('properties')">Properties</button>
+                    <button type="button" class="tab" role="tab" :class="{ 'tab--active': activeTab === 'capabilities' }" :aria-selected="activeTab === 'capabilities' ? 'true' : 'false'" @click="setTab('capabilities')">Capabilities</button>
+                    <button type="button" class="tab" role="tab" :class="{ 'tab--active': activeTab === 'diagnostics' }" :aria-selected="activeTab === 'diagnostics' ? 'true' : 'false'" @click="setTab('diagnostics')">Diagnostics</button>
+                </div>
+
+                <div class="tab-body" v-if="activeTab === 'properties'">
+                    <h3>Document</h3>
+                    <dl class="facts" v-if="doc">
+                        <div class="fact"><dt>Title</dt><dd :title="docTitle()">{{ docTitle() }}</dd></div>
+                        <div class="fact"><dt>Id</dt><dd class="mono">{{ doc.id }}</dd></div>
+                        <div class="fact"><dt>Revision</dt><dd class="mono">{{ doc.revision }}</dd></div>
+                        <div class="fact"><dt>Path</dt><dd class="mono" :title="documentPath()">{{ documentPath() }}</dd></div>
+                        <div class="fact"><dt>Sections</dt><dd class="mono">{{ sectionCount() }}</dd></div>
+                        <div class="fact"><dt>Paragraphs</dt><dd class="mono">{{ paragraphCount() }}</dd></div>
+                        <div class="fact"><dt>Tables</dt><dd class="mono">{{ tableCount() }}</dd></div>
+                    </dl>
+                    <p class="empty" v-else>Nothing is open. Facts appear only when the host returns a document.</p>
+
+                    <h3>Selection</h3>
+                    <div class="card">
+                        <b>No selection</b>
+                        <p>Selection needs the page renderer, so no object can be picked yet.</p>
+                    </div>
+
+                    <h3>Inspection</h3>
+                    <button type="button" class="btn btn--block" :disabled="!hostReady || !handleReady()" :title="handleReady() ? 'Run document.inspect' : 'No document handle'" @click="inspect">Run inspection</button>
+                    <p class="empty">{{ inspectOutcome }}</p>
+                </div>
+
+                <div class="tab-body" v-if="activeTab === 'capabilities'">
+                    <div v-if="capabilities">
+                        <h3>Engine</h3>
+                        <dl class="facts">
+                            <div class="fact"><dt>Package</dt><dd class="mono">{{ enginePackage() }}</dd></div>
+                            <div class="fact"><dt>Version</dt><dd class="mono">{{ engineVersion() }}</dd></div>
+                            <div class="fact"><dt>Project</dt><dd class="mono">{{ projectStatus() }}</dd></div>
+                        </dl>
+                        <h3>Declared surface</h3>
+                        <dl class="facts">
+                            <div class="fact"><dt>Formats declared</dt><dd class="mono">{{ formatCount() }}</dd></div>
+                            <div class="fact"><dt>Importable</dt><dd class="mono">{{ importableCount() }}</dd></div>
+                            <div class="fact"><dt>Editable</dt><dd class="mono">{{ editableCount() }}</dd></div>
+                            <div class="fact"><dt>Exportable</dt><dd class="mono">{{ exportableCount() }}</dd></div>
+                            <div class="fact"><dt>Checks</dt><dd class="mono">{{ checkCount() }}</dd></div>
+                            <div class="fact"><dt>Renderers</dt><dd class="mono">{{ rendererCount() }}</dd></div>
+                            <div class="fact"><dt>Export targets</dt><dd class="mono">{{ exportTargetCount() }}</dd></div>
+                        </dl>
+                        <div class="chip-row">
+                            <span class="chip">project {{ projectStatus() }}</span>
+                            <span class="chip">checks {{ checkStatus() }}</span>
+                            <span class="chip">renderers {{ rendererStatus() }}</span>
+                            <span class="chip">exports {{ exportTargetStatus() }}</span>
+                        </div>
+                        <p class="panel-note">Counts come from the capability matrix. A declared name is not a support claim.</p>
+                    </div>
+                    <p class="empty" v-else>Capabilities load when the native host connects. Nothing is assumed in the meantime.</p>
+                </div>
+
+                <div class="tab-body" v-if="activeTab === 'diagnostics'">
+                    <h3>Connection</h3>
+                    <dl class="facts">
+                        <div class="fact"><dt>Host</dt><dd>{{ hostReady ? "native webview" : "browser preview" }}</dd></div>
+                        <div class="fact"><dt>Connection</dt><dd>{{ connection }}</dd></div>
+                        <div class="fact"><dt>Requests sent</dt><dd class="mono">{{ requestsSent }}</dd></div>
+                        <div class="fact"><dt>Last request</dt><dd class="mono">{{ lastRequestLabel() }}</dd></div>
+                        <div class="fact"><dt>Last error</dt><dd class="mono">{{ lastErrorLabel() }}</dd></div>
+                    </dl>
+
+                    <h3>Request log</h3>
+                    <ul class="log" v-if="log.length">
+                        <li v-for="entry in log" :key="entry.id">
+                            <span class="log-time">{{ entry.time }}</span>
+                            <span class="log-type" :title="entry.type">{{ entry.type }}</span>
+                            <span class="log-outcome" :class="{ 'log-outcome--error': entry.outcome === 'error' }">{{ entry.outcome }}</span>
+                        </li>
+                    </ul>
+                    <p class="empty" v-else>No requests yet.</p>
+                    <div class="panel-actions">
+                        <button type="button" class="btn" :disabled="!log.length" @click="copyDiagnostics">Copy</button>
+                        <button type="button" class="btn" :disabled="!log.length" @click="clearLog">Clear</button>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <footer class="statusbar">
+            <span :class="{ error: errorText }">{{ errorText || status }}</span>
+            <span class="spacer"></span>
+            <span v-if="doc" class="status-facts">rev {{ doc.revision }} · {{ sectionCount() }} sections · {{ paragraphCount() }} paragraphs · {{ tableCount() }} tables</span>
+            <span>{{ hostReady ? "native host" : "preview" }}</span>
+            <span>{{ engineState() }}</span>
+            <span>zoom 100%</span>
+        </footer>
+
+        <div class="toast" v-if="toastVisible" :class="{ 'toast--error': toastTone === 'error', 'toast--warn': toastTone === 'warn' }" role="status">
+            <div class="toast-body">
+                <b>{{ toastTitle }}</b>
+                <p>{{ toastMessage }}</p>
+            </div>
+            <button type="button" class="toast-dismiss" aria-label="Dismiss" @click="dismissToast">×</button>
+        </div>
+
+        <section class="shortcuts" v-if="shortcutsOpen" role="dialog" aria-label="Keyboard shortcuts">
+            <header>
+                <h2>Keyboard shortcuts</h2>
+                <button type="button" class="btn btn--square" aria-label="Close shortcuts" @click="toggleShortcuts">×</button>
+            </header>
+            <dl>
+                <div class="shortcut"><dt>New</dt><dd><kbd>Ctrl/Cmd</kbd><kbd>N</kbd></dd></div>
+                <div class="shortcut"><dt>Open</dt><dd><kbd>Ctrl/Cmd</kbd><kbd>O</kbd></dd></div>
+                <div class="shortcut"><dt>Save</dt><dd><kbd>Ctrl/Cmd</kbd><kbd>S</kbd></dd></div>
+                <div class="shortcut"><dt>Export</dt><dd><kbd>Ctrl/Cmd</kbd><kbd>E</kbd></dd></div>
+                <div class="shortcut"><dt>Close document</dt><dd><kbd>Ctrl/Cmd</kbd><kbd>W</kbd></dd></div>
+                <div class="shortcut"><dt>Inspector tabs</dt><dd><kbd>Ctrl/Cmd</kbd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></dd></div>
+                <div class="shortcut"><dt>Dismiss</dt><dd><kbd>Esc</kbd></dd></div>
+            </dl>
+            <p class="panel-note">Shortcuts act on the native host only. Commands that are not implemented still report their stable error code.</p>
+        </section>
+    </div>
+</template>
+
+<style>
+.studio { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--owd-bg); color: var(--owd-ink); font-size: 12px; }
+.studio :focus-visible { outline: 2px solid var(--owd-accent); outline-offset: 2px; }
+.mark { display: grid; place-items: center; width: 28px; height: 28px; flex: none; border-radius: 7px; background: var(--owd-accent); color: #f7f9fc; font-family: var(--owd-display); font-size: 15px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 4px 8px; border: 1px solid transparent; border-radius: var(--owd-radius-sm); background: transparent; color: var(--owd-ink); font: inherit; font-size: 11px; line-height: 1.4; white-space: nowrap; cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; }
+.btn:hover:not(:disabled) { border-color: var(--owd-line); background: var(--owd-surface); }
+.btn:disabled { color: var(--owd-muted); opacity: 0.55; cursor: default; }
+.btn--primary { border-color: var(--owd-accent); background: var(--owd-accent); color: #f7f9fc; }
+.btn--primary:hover:not(:disabled) { border-color: var(--owd-accent); background: #34506f; }
+.btn--ghost { border-color: var(--owd-line); }
+.btn--square { width: 24px; height: 24px; padding: 0; border-color: var(--owd-line); font-family: var(--owd-display); font-size: 12px; }
+.btn--readout { color: var(--owd-muted); font-family: var(--owd-mono); font-size: 10px; }
+.btn--block { width: 100%; justify-content: flex-start; border-color: var(--owd-line); background: var(--owd-bg); }
+.titlebar { display: flex; align-items: center; gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--owd-line); background: var(--owd-surface); }
+.brand { display: flex; align-items: center; gap: 9px; min-width: 0; flex: none; }
+.brand-copy { display: flex; flex-direction: column; min-width: 0; }
+.brand-copy h1 { font-family: var(--owd-display); font-size: 13px; line-height: 1.15; }
+.doc-line { margin: 0; max-width: 250px; overflow: hidden; color: var(--owd-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.rev-chip { padding: 1px 7px; border: 1px solid var(--owd-line); border-radius: 999px; background: var(--owd-surface-2); color: var(--owd-muted); font-family: var(--owd-mono); font-size: 9px; white-space: nowrap; }
+.titlebar-actions { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.cmd-group { position: relative; display: flex; align-items: center; gap: 1px; padding: 2px; border: 1px solid var(--owd-line); border-radius: 8px; background: var(--owd-surface-2); }
+.cmd-group__label { padding: 0 5px; color: var(--owd-muted); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+.titlebar-right { display: flex; align-items: center; gap: 8px; flex: none; }
+.conn-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--owd-line); border-radius: 999px; color: var(--owd-muted); font-size: 10px; white-space: nowrap; }
+.conn-pill--live { border-color: var(--owd-accent-soft); color: var(--owd-accent); }
+.dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--owd-muted); }
+.dot--on { background: var(--owd-accent); }
+.export-anchor { position: relative; }
+.export-panel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; display: flex; flex-direction: column; gap: 7px; width: 286px; padding: 10px 12px; border: 1px solid var(--owd-line); border-radius: 8px; background: var(--owd-surface); box-shadow: var(--owd-shadow-pop); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.panel-head b { font-family: var(--owd-display); font-size: 12px; }
+.field { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.field > span { flex: none; width: 48px; color: var(--owd-muted); font-size: 10px; }
+.field select { flex: 1; min-width: 0; padding: 3px 6px; border: 1px solid var(--owd-line); border-radius: 5px; background: var(--owd-bg); font-family: var(--owd-mono); font-size: 10px; }
+.field--stack { align-items: flex-start; flex-direction: column; gap: 3px; }
+.field--stack > span { width: auto; }
+.readout { width: 100%; overflow: hidden; padding: 3px 6px; border: 1px solid var(--owd-line); border-radius: 5px; background: var(--owd-bg); color: var(--owd-ink); font-family: var(--owd-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.panel-note { margin: 0; color: var(--owd-muted); font-size: 10px; line-height: 1.5; }
+.panel-actions { display: flex; gap: 5px; margin-top: 2px; }
+.contextbar { display: flex; align-items: center; gap: 10px; padding: 5px 12px; border-bottom: 1px solid var(--owd-line); background: var(--owd-bg); }
+.path-field { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; max-width: 520px; }
+.path-field > span { color: var(--owd-muted); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+.path-input { flex: 1; min-width: 0; padding: 4px 8px; border: 1px solid var(--owd-line); border-radius: var(--owd-radius-sm); background: var(--owd-surface); color: var(--owd-ink); font-family: var(--owd-mono); font-size: 10px; user-select: text; }
+.path-hint { margin: 0; overflow: hidden; color: var(--owd-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.pill { padding: 2px 8px; border: 1px solid var(--owd-line); border-radius: 999px; color: var(--owd-muted); font-size: 10px; white-space: nowrap; }
+.spacer { flex: 1; min-width: 0; }
+.preview-banner { padding: 5px 12px; border-bottom: 1px solid var(--owd-line); background: var(--owd-accent-soft); color: var(--owd-accent); font-size: 10px; line-height: 1.5; }
+.workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr) 300px; }
+.sidebar { display: flex; flex-direction: column; min-height: 0; overflow: auto; border-right: 1px solid var(--owd-line); background: var(--owd-surface-2); }
+.panel { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; border-bottom: 1px solid var(--owd-line); }
+.panel:last-child { border-bottom: 0; }
+.panel-head h2 { font-family: var(--owd-display); font-size: 10px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--owd-muted); }
+.panel-count { color: var(--owd-muted); font-family: var(--owd-mono); font-size: 9px; }
+.facts { display: flex; flex-direction: column; gap: 3px; margin: 0; }
+.fact { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; font-size: 11px; }
+.fact dt { flex: none; color: var(--owd-muted); font-size: 10px; }
+.fact dd { min-width: 0; margin: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.mono { font-family: var(--owd-mono); font-size: 10px; font-variant-numeric: tabular-nums; }
+.empty { margin: 0; color: var(--owd-muted); font-size: 10px; line-height: 1.5; }
+.outline { display: flex; flex-direction: column; gap: 1px; }
+.outline-item { display: flex; align-items: center; gap: 7px; width: 100%; padding: 4px 6px; border: 1px solid transparent; border-radius: var(--owd-radius-sm); background: transparent; color: var(--owd-ink); font: inherit; font-size: 11px; text-align: left; cursor: pointer; }
+.outline-item:hover { border-color: var(--owd-line); background: var(--owd-surface); }
+.outline-item--active { border-color: var(--owd-accent-soft); background: var(--owd-accent-soft); color: var(--owd-accent); }
+.outline-index { width: 15px; flex: none; color: var(--owd-muted); font-family: var(--owd-mono); font-size: 9px; }
+.outline-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.targets { display: flex; flex-direction: column; gap: 3px; }
+.target-row { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.target-name { flex: 1; min-width: 0; font-family: var(--owd-mono); font-size: 10px; }
+.target-status { color: var(--owd-muted); font-size: 9px; }
+.canvas-area { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--owd-bg); }
+.canvas-bar { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--owd-line); background: var(--owd-surface); color: var(--owd-muted); font-size: 10px; }
+.canvas-bar b { color: var(--owd-ink); font-size: 11px; }
+.zoom-readout { font-family: var(--owd-mono); font-size: 9px; }
+.chip { padding: 1px 7px; border: 1px solid var(--owd-line); border-radius: 999px; background: var(--owd-surface-2); color: var(--owd-muted); font-size: 9px; white-space: nowrap; }
+.chip--off { border-color: var(--owd-line); color: var(--owd-muted); }
+.canvas-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 26px minmax(0, 1fr); grid-template-rows: 22px minmax(0, 1fr); background: radial-gradient(circle at 1px 1px, #ddd5c7 1px, transparent 0) 0 0 / 22px 22px, var(--owd-bg); }
+.ruler-corner { border-right: 1px solid var(--owd-line); border-bottom: 1px solid var(--owd-line); background: var(--owd-surface-2); }
+.ruler { display: flex; overflow: hidden; background: var(--owd-surface-2); color: var(--owd-muted); font-family: var(--owd-mono); font-size: 8px; }
+.ruler--h { align-items: flex-end; justify-content: space-between; padding: 0 5px 2px; border-bottom: 1px solid var(--owd-line); }
+.ruler--v { flex-direction: column; align-items: flex-end; justify-content: space-between; padding: 4px 3px 4px 0; border-right: 1px solid var(--owd-line); }
+.ruler--h span { padding-left: 3px; border-left: 1px solid var(--owd-line); line-height: 1; }
+.ruler--v span { padding-top: 2px; border-top: 1px solid var(--owd-line); line-height: 1; }
+.paper-scroll { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; padding: 22px; overflow: auto; }
+.paper { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; width: min(500px, 100%); aspect-ratio: 1 / 1.294; padding: 28px; border: 1px solid var(--owd-line); border-radius: 8px; background: var(--owd-surface); box-shadow: var(--owd-shadow-paper); text-align: center; }
+.paper-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 9px; background: var(--owd-accent-soft); color: var(--owd-accent); font-family: var(--owd-display); font-size: 18px; }
+.paper-title { margin: 0; color: var(--owd-ink); font-family: var(--owd-display); font-size: 19px; font-weight: 600; }
+.paper-meta { margin: 0; color: var(--owd-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.paper-note { max-width: 330px; margin: 0; color: var(--owd-muted); font-size: 10px; line-height: 1.55; }
+.paper-actions { display: flex; gap: 5px; margin-top: 2px; }
+.toolstrip { display: flex; align-items: center; gap: 4px; padding: 4px 10px; border-top: 1px solid var(--owd-line); background: var(--owd-surface); }
+.toolstrip__label { margin-right: 2px; color: var(--owd-muted); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+.tool { padding: 2px 8px; border: 1px solid var(--owd-line); border-radius: var(--owd-radius-sm); background: var(--owd-surface-2); color: var(--owd-muted); font: inherit; font-size: 10px; opacity: 0.7; cursor: default; }
+.badge { margin-left: auto; padding: 1px 7px; border: 1px solid var(--owd-line); border-radius: 999px; background: var(--owd-surface-2); color: var(--owd-muted); font-family: var(--owd-mono); font-size: 8px; }
+.inspector { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--owd-line); background: var(--owd-surface); }
+.tabs { display: flex; gap: 1px; padding: 6px 8px 0; border-bottom: 1px solid var(--owd-line); }
+.tab { padding: 5px 7px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; background: transparent; color: var(--owd-muted); font: inherit; font-size: 10px; cursor: pointer; }
+.tab:hover { color: var(--owd-ink); }
+.tab--active { border-color: var(--owd-line); background: var(--owd-bg); color: var(--owd-accent); }
+.tab-body { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; padding: 10px 12px; overflow: auto; }
+.tab-body h3 { margin: 2px 0 0; color: var(--owd-muted); font-family: var(--owd-display); font-size: 9px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+.card { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; border: 1px solid var(--owd-line); border-radius: var(--owd-radius-sm); background: var(--owd-bg); }
+.card b { font-size: 11px; }
+.card p { margin: 0; color: var(--owd-muted); font-size: 10px; line-height: 1.5; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.log { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.log li { display: flex; align-items: center; gap: 6px; padding: 3px 5px; border: 1px solid var(--owd-line); border-radius: 4px; background: var(--owd-bg); color: var(--owd-muted); font-family: var(--owd-mono); font-size: 8px; }
+.log-time { flex: none; font-variant-numeric: tabular-nums; }
+.log-type { flex: 1; min-width: 0; overflow: hidden; color: var(--owd-ink); text-overflow: ellipsis; white-space: nowrap; }
+.log-outcome { flex: none; }
+.log-outcome--error { color: var(--owd-danger); }
+.statusbar { display: flex; align-items: center; gap: 10px; padding: 3px 12px; border-top: 1px solid var(--owd-line); background: var(--owd-surface); color: var(--owd-muted); font-size: 9px; }
+.statusbar .error { color: var(--owd-danger); }
+.status-facts { font-variant-numeric: tabular-nums; }
+.toast { position: fixed; right: 14px; bottom: 28px; z-index: 50; display: flex; align-items: flex-start; gap: 10px; max-width: 340px; padding: 9px 11px; border: 1px solid var(--owd-line); border-left: 3px solid var(--owd-accent); border-radius: 8px; background: var(--owd-surface); box-shadow: var(--owd-shadow-pop); }
+.toast--error { border-left-color: var(--owd-danger); }
+.toast--warn { border-left-color: var(--owd-muted); }
+.toast-body { min-width: 0; }
+.toast-body b { display: block; font-size: 11px; }
+.toast-body p { margin: 2px 0 0; color: var(--owd-muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.toast-dismiss { flex: none; padding: 0 3px; border: 0; background: transparent; color: var(--owd-muted); font: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
+.shortcuts { position: fixed; top: 74px; right: 14px; z-index: 60; width: 292px; padding: 11px 13px; border: 1px solid var(--owd-line); border-radius: 8px; background: var(--owd-surface); box-shadow: var(--owd-shadow-pop); }
+.shortcuts header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.shortcuts h2 { font-family: var(--owd-display); font-size: 12px; }
+.shortcuts dl { display: flex; flex-direction: column; gap: 4px; margin: 0 0 8px; }
+.shortcut { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 10px; color: var(--owd-muted); }
+.shortcut dt,
+.shortcut dd { margin: 0; }
+.shortcut dd { display: flex; gap: 3px; }
+kbd { min-width: 15px; padding: 1px 4px; border: 1px solid var(--owd-line); border-bottom-width: 2px; border-radius: 4px; background: var(--owd-bg); color: var(--owd-ink); font-family: var(--owd-mono); font-size: 8px; text-align: center; }
+@media (max-width: 1180px) {
+    .titlebar { flex-wrap: wrap; row-gap: 6px; }
+    .doc-line { max-width: 180px; }
+    .workspace { grid-template-columns: 220px minmax(0, 1fr) 260px; }
+}
+@media (max-width: 1000px) {
+    .workspace { grid-template-columns: 220px minmax(0, 1fr); }
+    .inspector { display: none; }
+}
+@media (max-width: 820px) {
+    .workspace { grid-template-columns: minmax(0, 1fr); }
+    .sidebar { display: none; }
+    .path-hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .studio * { transition: none !important; animation: none !important; }
+}
+</style>
+
+<script client>
+function hostWebview() {
+    const view = typeof window === "undefined" ? null : window;
+    return view && view.chrome ? view.chrome.webview : null;
+}
+
+function clock() {
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+}
+
+export default class StudioPage {
+    hostReady = false;
+    connection = "preview";
+    status = "Starting";
+    errorText = "";
+
+    path = "";
+    projectPath = "";
+    doc = null;
+    outline = [];
+    handle = 0;
+    capabilities = null;
+
+    activeSectionId = "";
+    activeTab = "properties";
+    exportFormat = "docx";
+    exportOpen = false;
+    shortcutsOpen = false;
+    inspectOutcome = "No inspection run yet.";
+
+    requestsSent = 0;
+    lastRequestType = "";
+    lastRequestId = "";
+    lastErrorCode = "";
+    lastErrorMessage = "";
+    log = [];
+
+    toastVisible = false;
+    toastTone = "info";
+    toastTitle = "";
+    toastMessage = "";
+    toastTimer = 0;
+
+    seq = 0;
+    pending = {};
+
+    onMount() {
+        // Static render (build-time SSR) has no window; the client mount below
+        // takes over in the WebView or a regular browser tab.
+        if (typeof window === "undefined") {
+            return;
+        }
+        document.addEventListener("keydown", (event) => this.onKeyDown(event));
+        void this.start();
+    }
+
+    async start() {
+        const webview = hostWebview();
+        if (!webview) {
+            this.hostReady = false;
+            this.connection = "preview";
+            this.status = "Preview mode — native window unavailable";
+            return;
+        }
+        this.hostReady = true;
+        this.connection = "native";
+        webview.addEventListener("message", (event) => this.onHostMessage(event));
+        try {
+            await this.rpc("ready", {});
+            const response = await this.rpc("capabilities", {});
+            this.capabilities = response.capabilities || null;
+            this.exportFormat = this.firstExportTarget();
+            this.status = "Host connected";
+            this.errorText = "";
+        } catch (error) {
+            this.fail(error);
+        }
+    }
+
+    rpc(type, payload) {
+        const webview = hostWebview();
+        if (!webview) {
+            return Promise.reject(new Error("native window unavailable"));
+        }
+        const id = `q${++this.seq}`;
+        this.requestsSent += 1;
+        this.lastRequestType = type;
+        this.lastRequestId = id;
+        this.log = [{ id, type, outcome: "sent", time: clock() }].concat(this.log).slice(0, 8);
+        return new Promise((resolve, reject) => {
+            this.pending[id] = { resolve, reject };
+            webview.postMessage(JSON.stringify(Object.assign({ type, id }, payload || {})));
+        });
+    }
+
+    onHostMessage(event) {
+        let data = event.data;
+        if (typeof data === "string") {
+            try {
+                data = JSON.parse(data);
+            } catch {
+                return;
+            }
+        }
+        if (!data || typeof data !== "object" || typeof data.id !== "string") {
+            return;
+        }
+        const entry = this.pending[data.id];
+        if (!entry) {
+            return;
+        }
+        delete this.pending[data.id];
+        if (typeof data.type === "string" && data.type.endsWith("Error")) {
+            this.markLog(data.id, "error");
+            entry.reject(new Error(data.message || data.type));
+        } else {
+            this.markLog(data.id, "ok");
+            entry.resolve(data);
+        }
+    }
+
+    markLog(id, outcome) {
+        this.log = this.log.map((entry) => (entry.id === id ? Object.assign({}, entry, { outcome }) : entry));
+    }
+
+    fail(error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const match = /^([a-z-]+\/[a-z-]+):\s*(.*)$/i.exec(message);
+        this.lastErrorCode = match ? match[1] : "";
+        this.lastErrorMessage = match ? match[2] : message;
+        this.errorText = message;
+        this.status = "Failed";
+        this.pushToast("error", "Request rejected", message);
+    }
+
+    warn(message) {
+        this.lastErrorCode = "";
+        this.lastErrorMessage = message;
+        this.errorText = message;
+        this.status = "Needs input";
+        this.pushToast("warn", "Check the request", message);
+    }
+
+    pushToast(tone, title, message) {
+        this.toastTone = tone;
+        this.toastTitle = title;
+        this.toastMessage = message;
+        this.toastVisible = true;
+        if (this.toastTimer) {
+            clearTimeout(this.toastTimer);
+        }
+        this.toastTimer = setTimeout(() => {
+            this.toastVisible = false;
+            this.toastTimer = 0;
+        }, 7000);
+    }
+
+    dismissToast() {
+        if (this.toastTimer) {
+            clearTimeout(this.toastTimer);
+            this.toastTimer = 0;
+        }
+        this.toastVisible = false;
+    }
+
+    async create() {
+        if (!this.hostReady) {
+            this.warn("The native host is not connected.");
+            return;
+        }
+        try {
+            const response = await this.rpc("document.create", { request: { title: "Untitled document" } });
+            this.applyDocument(response, "");
+        } catch (error) {
+            this.fail(error);
+        }
+    }
+
+    async open() {
+        const target = this.path.trim();
+        if (!target) {
+            this.warn("Type a document path before opening.");
+            return;
+        }
+        try {
+            const response = await this.rpc("document.open", { path: target });
+            this.applyDocument(response, target);
+        } catch (error) {
+            this.fail(error);
+        }
+    }
+
+    async save() {
+        if (!this.doc || !this.handle) {
+            this.warn("No document handle. Nothing can be saved.");
+            return;
+        }
+        const target = this.path.trim() || this.projectPath;
+        if (!target) {
+            this.warn("Type a document path before saving.");
+            return;
+        }
+        try {
+            const response = await this.rpc("document.save", { handle: this.handle, path: target, overwrite: true });
+            const report = response && response.report ? response.report : null;
+            this.projectPath = target;
+            this.errorText = "";
+            this.status = report ? `Saved ${report.bytes} bytes at revision ${report.revision}` : "Save response received";
+        } catch (error) {
+            this.fail(error);
+        }
+    }
+
+    async exportCurrent() {
+        if (!this.exportReady()) {
+            this.warn("Export needs an open document and the capability matrix.");
+            return;
+        }
+        const target = this.exportTargetPath();
+        if (!target) {
+            this.warn("Type a document path before exporting.");
+            return;
+        }
+        try {
+            const response = await this.rpc("document.export", { handle: this.handle, format: this.exportFormat, target, overwrite: true });
+            const report = response && response.report ? response.report : null;
+            this.exportOpen = false;
+            this.errorText = "";
+            this.status = report ? `Exported ${report.format} to ${report.target}` : "Export response received";
+        } catch (error) {
+            this.fail(error);
+        }
+    }
+
+    async closeDocument() {
+        if (!this.doc) {
+            this.status = "No document open";
+            return;
+        }
+        try {
+            await this.rpc("document.close", { handle: this.handle });
+            this.handle = 0;
+            this.doc = null;
+            this.outline = [];
+            this.activeSectionId = "";
+            this.projectPath = "";
+            this.inspectOutcome = "No inspection run yet.";
+            this.errorText = "";
+            this.status = "Document closed";
+        } catch (error) {
+            this.fail(error);
+        }
+    }
+
+    async quit() {
+        this.status = "Close requested";
+        try {
+            await this.rpc("close", {});
+        } catch (error) {
+            this.fail(error);
+        }
+    }
+
+    async inspect() {
+        if (!this.handle) {
+            this.warn("No document handle to inspect.");
+            return;
+        }
+        try {
+            const response = await this.rpc("document.inspect", { handle: this.handle });
+            const report = response && response.report ? response.report : null;
+            if (!report) {
+                this.inspectOutcome = "Inspection returned no report.";
+                return;
+            }
+            const issues = Array.isArray(report.issues) ? report.issues.length : 0;
+            const verdict = report.passed === true ? "passed" : "failed";
+            this.inspectOutcome = `Revision ${report.revision} · ${verdict} · ${issues} issues`;
+            this.errorText = "";
+            this.status = "Inspection finished";
+        } catch (error) {
+            this.inspectOutcome = "Inspection did not run.";
+            this.fail(error);
+        }
+    }
+
+    applyDocument(response, path) {
+        const summary = response && response.document ? response.document : response;
+        if (!summary || typeof summary !== "object") {
+            this.warn("The host returned no document.");
+            return;
+        }
+        const sections = Array.isArray(summary.sections) ? summary.sections : [];
+        this.doc = summary;
+        this.outline = sections;
+        this.handle = response && typeof response.handle === "number" ? response.handle : this.handle;
+        this.projectPath = path || "";
+        this.activeSectionId = sections.length ? sections[0].id : "";
+        this.inspectOutcome = "No inspection run yet.";
+        this.errorText = "";
+        this.status = `Revision ${summary.revision}`;
+        this.pushToast("info", "Document state updated", `Revision ${summary.revision}`);
+    }
+
+    onKeyDown(event) {
+        const key = event.key;
+        if (key === "Escape") {
+            if (this.shortcutsOpen) {
+                this.shortcutsOpen = false;
+                return;
+            }
+            if (this.exportOpen) {
+                this.exportOpen = false;
+                return;
+            }
+            if (this.toastVisible) {
+                this.dismissToast();
+            }
+            return;
+        }
+        const mod = event.ctrlKey || event.metaKey;
+        if (!mod) {
+            return;
+        }
+        const target = event.target;
+        const typing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT");
+        const lower = String(key).toLowerCase();
+        if (lower === "w") {
+            event.preventDefault();
+            if (this.hostReady) {
+                void this.closeDocument();
+            }
+            return;
+        }
+        if (key === "1") {
+            event.preventDefault();
+            this.setTab("properties");
+            return;
+        }
+        if (key === "2") {
+            event.preventDefault();
+            this.setTab("capabilities");
+            return;
+        }
+        if (key === "3") {
+            event.preventDefault();
+            this.setTab("diagnostics");
+            return;
+        }
+        if (typing) {
+            return;
+        }
+        if (lower === "n") {
+            event.preventDefault();
+            void this.create();
+            return;
+        }
+        if (lower === "o") {
+            event.preventDefault();
+            void this.open();
+            return;
+        }
+        if (lower === "s") {
+            event.preventDefault();
+            void this.save();
+            return;
+        }
+        if (lower === "e") {
+            event.preventDefault();
+            this.openExportPanel();
+        }
+    }
+
+    onPathInput(event) {
+        const target = event.target;
+        if (!target) {
+            return;
+        }
+        this.path = target.value;
+    }
+
+    onFormatChange(event) {
+        const target = event.target;
+        if (!target) {
+            return;
+        }
+        this.exportFormat = target.value;
+    }
+
+    setTab(name) {
+        this.activeTab = name;
+    }
+
+    selectSection(id) {
+        this.activeSectionId = id;
+    }
+
+    toggleExport() {
+        this.exportOpen = !this.exportOpen;
+        if (this.exportOpen) {
+            this.shortcutsOpen = false;
+        }
+    }
+
+    openExportPanel() {
+        this.exportOpen = true;
+        this.shortcutsOpen = false;
+    }
+
+    toggleShortcuts() {
+        this.shortcutsOpen = !this.shortcutsOpen;
+        if (this.shortcutsOpen) {
+            this.exportOpen = false;
+        }
+    }
+
+    copyDiagnostics() {
+        const clipboard = typeof navigator === "undefined" ? null : navigator.clipboard;
+        if (!clipboard || typeof clipboard.writeText !== "function") {
+            this.pushToast("warn", "Clipboard unavailable", "This window cannot reach the clipboard.");
+            return;
+        }
+        const lines = this.log.map((entry) => `${entry.time} ${entry.type} ${entry.outcome}`);
+        clipboard.writeText(lines.join("\n")).then(
+            () => this.pushToast("info", "Diagnostics copied", `${lines.length} log entries copied.`),
+            () => this.pushToast("warn", "Clipboard unavailable", "The copy request was rejected."),
+        );
+    }
+
+    clearLog() {
+        this.log = [];
+        this.pushToast("info", "Log cleared", "The request log is empty.");
+    }
+
+    firstExportTarget() {
+        const rows = this.exportTargetRows();
+        return rows.length ? rows[0].name : "docx";
+    }
+
+    exportTargetRows() {
+        const matrix = this.capabilities;
+        if (!matrix || !matrix.exportTargets) {
+            return [];
+        }
+        return Object.keys(matrix.exportTargets).map((name) => {
+            const status = matrix.exportTargets[name];
+            return { name, status, supported: status === "supported" };
+        });
+    }
+
+    exportReady() {
+        return this.hostReady && Boolean(this.doc) && this.capabilities !== null && this.exportTargetRows().length > 0;
+    }
+
+    hasSupportedTargets() {
+        return this.exportTargetRows().some((target) => target.supported);
+    }
+
+    exportTargetPath() {
+        let base = this.path.trim() || this.projectPath;
+        if (!base) {
+            return "";
+        }
+        const slash = Math.max(base.lastIndexOf("/"), base.lastIndexOf("\\"));
+        const dot = base.lastIndexOf(".");
+        if (dot > slash) {
+            base = base.slice(0, dot);
+        }
+        return `${base}.${this.exportFormat}`;
+    }
+
+    handleReady() {
+        return this.handle > 0;
+    }
+
+    docLine() {
+        if (this.doc) {
+            const title = this.doc.title || "Untitled document";
+            return this.projectPath ? `${title} — ${this.projectPath}` : title;
+        }
+        return this.projectPath || "No document open";
+    }
+
+    docTitle() {
+        if (this.doc && this.doc.title) {
+            return this.doc.title;
+        }
+        return "Untitled document";
+    }
+
+    revisionLabel() {
+        return this.doc ? `rev ${this.doc.revision}` : "no revision";
+    }
+
+    documentPath() {
+        return this.projectPath || "—";
+    }
+
+    sectionCount() {
+        if (!this.doc) {
+            return 0;
+        }
+        if (Array.isArray(this.doc.sections)) {
+            return this.doc.sections.length;
+        }
+        return this.outline.length;
+    }
+
+    paragraphCount() {
+        return this.doc && Array.isArray(this.doc.paragraphs) ? this.doc.paragraphs.length : 0;
+    }
+
+    tableCount() {
+        return this.doc && Array.isArray(this.doc.tables) ? this.doc.tables.length : 0;
+    }
+
+    activeSection() {
+        const found = this.outline.find((section) => section.id === this.activeSectionId);
+        if (found) {
+            return found;
+        }
+        return this.outline.length ? this.outline[0] : null;
+    }
+
+    activeSectionTitle() {
+        const section = this.activeSection();
+        if (!section) {
+            return "No section";
+        }
+        return section.title || "Untitled section";
+    }
+
+    engineState() {
+        if (!this.capabilities || this.capabilities.project === "unsupported") {
+            return "engine not connected";
+        }
+        return `engine ${this.capabilities.project}`;
+    }
+
+    enginePackage() {
+        return this.capabilities && this.capabilities.engine ? this.capabilities.engine.package : "unknown";
+    }
+
+    engineVersion() {
+        return this.capabilities && this.capabilities.engine ? this.capabilities.engine.version : "unknown";
+    }
+
+    projectStatus() {
+        return this.capabilities ? this.capabilities.project : "unsupported";
+    }
+
+    formatCount() {
+        return this.capabilities && this.capabilities.formats ? Object.keys(this.capabilities.formats).length : 0;
+    }
+
+    importableCount() {
+        const matrix = this.capabilities;
+        if (!matrix || !matrix.formats) {
+            return 0;
+        }
+        let count = 0;
+        for (const name of Object.keys(matrix.formats)) {
+            const entry = matrix.formats[name];
+            if (entry && entry.import === "supported") {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    editableCount() {
+        const matrix = this.capabilities;
+        if (!matrix || !matrix.formats) {
+            return 0;
+        }
+        let count = 0;
+        for (const name of Object.keys(matrix.formats)) {
+            const entry = matrix.formats[name];
+            if (entry && entry.edit === "supported") {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    exportableCount() {
+        const matrix = this.capabilities;
+        if (!matrix || !matrix.formats) {
+            return 0;
+        }
+        let count = 0;
+        for (const name of Object.keys(matrix.formats)) {
+            const entry = matrix.formats[name];
+            if (entry && entry.export === "supported") {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    checkCount() {
+        return this.capabilities && this.capabilities.checks ? Object.keys(this.capabilities.checks).length : 0;
+    }
+
+    rendererCount() {
+        return this.capabilities && this.capabilities.renderers ? Object.keys(this.capabilities.renderers).length : 0;
+    }
+
+    exportTargetCount() {
+        return this.capabilities && this.capabilities.exportTargets ? Object.keys(this.capabilities.exportTargets).length : 0;
+    }
+
+    groupStatus(map) {
+        if (!map) {
+            return "unsupported";
+        }
+        const names = Object.keys(map);
+        if (!names.length) {
+            return "unsupported";
+        }
+        let supported = 0;
+        for (const name of names) {
+            if (map[name] === "supported") {
+                supported += 1;
+            }
+        }
+        if (supported === names.length) {
+            return "supported";
+        }
+        return supported === 0 ? "unsupported" : "partial";
+    }
+
+    checkStatus() {
+        return this.capabilities ? this.groupStatus(this.capabilities.checks) : "unsupported";
+    }
+
+    rendererStatus() {
+        return this.capabilities ? this.groupStatus(this.capabilities.renderers) : "unsupported";
+    }
+
+    exportTargetStatus() {
+        return this.capabilities ? this.groupStatus(this.capabilities.exportTargets) : "unsupported";
+    }
+
+    horizontalTicks() {
+        const ticks = [];
+        for (let index = 0; index <= 8; index += 1) {
+            ticks.push({ key: `h${index}`, label: String(index) });
+        }
+        return ticks;
+    }
+
+    verticalTicks() {
+        const ticks = [];
+        for (let index = 0; index <= 11; index += 1) {
+            ticks.push({ key: `v${index}`, label: String(index) });
+        }
+        return ticks;
+    }
+
+    lastRequestLabel() {
+        if (!this.lastRequestType) {
+            return "none";
+        }
+        return `${this.lastRequestType} ${this.lastRequestId}`;
+    }
+
+    lastErrorLabel() {
+        if (!this.lastErrorMessage) {
+            return "none";
+        }
+        return this.lastErrorCode ? `${this.lastErrorCode}: ${this.lastErrorMessage}` : this.lastErrorMessage;
+    }
+}
+</script>

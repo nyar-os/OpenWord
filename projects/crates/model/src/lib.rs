@@ -11,6 +11,7 @@ mod edit;
 mod files;
 mod inspect;
 mod merge;
+mod outline;
 mod replace;
 mod store;
 
@@ -196,6 +197,16 @@ pub fn inspect(handle: u64, checks: Option<Vec<String>>) -> Result<Value, Servic
 /// Returns the committed summary of one document handle.
 pub fn summary(handle: u64) -> Result<Value, ServiceError> {
     store::with(handle, |entry| summary_json(&entry.graph)).ok_or_else(|| document_not_found(handle))
+}
+
+/// Returns the nested heading outline of one document handle.
+///
+/// Every section appears once, nested under the closest preceding heading with a
+/// lower level. Each item carries its `section-N` id, heading level, title
+/// (`null` when empty), depth-first `blockIndex` and child items, so a caller can
+/// render a table of contents or address a heading without walking the summary.
+pub fn outline(handle: u64) -> Result<Value, ServiceError> {
+    store::with(handle, |entry| outline::report(&entry.graph)).ok_or_else(|| document_not_found(handle))
 }
 
 /// Returns block, paragraph, heading, table, word and character counts for one

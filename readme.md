@@ -34,6 +34,8 @@ open-word create --out report.oword --title "Research review"
 open-word open report.docx
 open-word save report.docx --out report.oword
 open-word inspect report.docx --checks styles,tables,links
+open-word find report.oword "revenue" --limit 5
+open-word replace report.oword --find "old name" --with "new name" --out report.oword --overwrite
 open-word edit report.oword --heading "Results" --level 2 --paragraph "Numbers held." --out report.oword --overwrite
 open-word export report.oword --format pdf --out report.pdf --overwrite
 open-word gui
@@ -51,13 +53,19 @@ await word.dispose();
 ```
 
 `capabilities` reports what the installed engine actually routes: `.docx`/`.docm`
-import and `docx`/`md`/`html`/`pdf` export are supported, `.md`/`.html`/`.txt`/`.pdf`
+import and `docx`/`md`/`html`/`pdf`/`txt` export are supported, `.md`/`.html`/`.txt`/`.pdf`
 open for reading (PDF import is partial), and `.dotx`/`.dotm`/`.doc`/`.rtf`/`.odt`
 are unsupported. Editing works on the shared document model: append paragraphs,
-headings and tables, or update metadata, and every batch advances one revision.
-`inspect` runs structural rules (sections, tables, links, images, styles) and
-reports the revision it observed. PDF export is a projection and cannot be
-reopened for editing.
+headings and tables, insert a paragraph at any depth-first position, replace
+text across titles, paragraphs, list items and table cells, remove a block with
+its whole subtree, set one table cell, or update metadata. Every operation
+advances exactly one revision, a batch is validated before the first mutation,
+and `expectedRevision` rejects stale writes. `find` searches the same text in
+document order and reports character offsets per block. `inspect` runs
+structural rules (sections, tables, links, images, styles) and reports the
+revision it observed. PDF export is a projection and cannot be reopened for
+editing. Plain-text export uses `#` heading markers, `-` list items and tabbed
+table rows.
 
 ## Repo layout
 
@@ -80,6 +88,6 @@ OpenWord/
 ```
 
 This repository ships the first usable slice: project containers, Word and
-Markdown/HTML/text import, structural inspection, atomic edits and
-`docx`/`md`/`html`/`pdf` export. Template rendering, macro handling and the
+Markdown/HTML/text import, structural inspection, atomic edits, text search and
+`docx`/`md`/`html`/`pdf`/`txt` export. Template rendering, macro handling and the
 remaining format family are reported as unsupported until they are wired.

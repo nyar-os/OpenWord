@@ -10,11 +10,12 @@ registry (`.docx`/`.docm`/`.dotx`/`.dotm`/`.doc`/`.rtf`/`.odt`/`.txt`/`.md`/
 `.html`/`.pdf`) and the authoring session `new OpenWord(options?)`.
 
 Engine calls go through the native binding: create and open documents, inspect
-structure, apply atomic edits, save project containers and export
-`docx`/`md`/`html`/`pdf`. Without a built binding every engine call rejects with
-`capability/not-implemented`. Classification is not a support claim: reads,
-writes and export targets come from `capabilities()`, never from an extension or
-a method name.
+structure, search text with per-block character offsets, apply atomic edits
+(append, insert, replace, remove and table cell updates), save project
+containers and export `docx`/`md`/`html`/`pdf`/`txt`. Without a built binding
+every engine call rejects with `capability/not-implemented`. Classification is
+not a support claim: reads, writes and export targets come from
+`capabilities()`, never from an extension or a method name.
 
 ## Boundaries
 

@@ -79,6 +79,7 @@ Exit codes: `0` success, `1` a failed inspection (`passed: false`) or an action 
 | `taskList.append` | `items: (string \| { text, checked? })[]`; exports keep `[ ]`/`[x]` |
 | `quote.append` | `text` (non-empty) |
 | `code.append` | `text` (non-empty), `language?` |
+| `code.setLanguage` | `id` (`node-N`), `language?`; changes only the tag, an omitted or empty tag clears it |
 | `table.append` | `rows: string[][]` (at least one row and cell) |
 | `table.setCaption` | `table`, `caption?`; omit or `null` clears, a present caption is trimmed and must not be blank |
 | `metadata.set` | at least one of `title`, `author` |

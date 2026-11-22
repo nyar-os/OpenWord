@@ -22,6 +22,7 @@ enum Operation {
     TaskList(Vec<(String, bool)>),
     Quote(String),
     Code { text: String, language: Option<String> },
+    SetCodeLanguage { block: NodeId, language: Option<String> },
     Table(Vec<Vec<String>>),
     SetCaption { table: usize, caption: Option<String> },
     Metadata { title: Option<String>, author: Option<String> },
@@ -158,6 +159,10 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             Ok(Operation::Code { text, language })
         }
         "table.append" => Ok(Operation::Table(required_rows(operation)?)),
+        "code.setLanguage" => Ok(Operation::SetCodeLanguage {
+            block: parse_block_id(operation)?,
+            language: optional_text(operation, "language")?.filter(|value| !value.trim().is_empty()),
+        }),
         "table.setCaption" => {
             let caption = optional_text(operation, "caption")?.map(|caption| caption.trim().to_owned());
             if caption.as_deref() == Some("") {
@@ -433,6 +438,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
         Operation::Code { text, language } => {
             append_block(graph, Block::Code { language: language.clone(), content: text });
             Ok(json!({ "type": "code.append", "language": language }))
+        }
+        Operation::SetCodeLanguage { block, language } => {
+            let label = set_code_language(graph, block, language.clone())?;
+            graph.bump_revision();
+            Ok(json!({ "type": "code.setLanguage", "id": label, "language": language }))
         }
         Operation::Table(rows) => {
             append_table(graph, rows);
@@ -1193,6 +1203,26 @@ fn set_heading_level(graph: &mut DocumentGraph, id: NodeId, level: u8) -> Result
             Ok(label)
         }
         _ => Err(crate::invalid("`heading.setLevel` needs a heading section; the addressed block is not one")),
+    }
+}
+
+/// Changes the language tag of one code block and returns its address.
+///
+/// Only the tag changes; the source text and position stay as they are. A
+/// missing or empty `language` clears the tag, so the fence renders bare.
+fn set_code_language(graph: &mut DocumentGraph, id: NodeId, language: Option<String>) -> Result<String, ServiceError> {
+    if !graph.blocks.iter().any(|node| node.id == id) {
+        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+    }
+    let label =
+        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+    match &mut node.block {
+        Block::Code { language: current, .. } => {
+            *current = language;
+            Ok(label)
+        }
+        _ => Err(crate::invalid("`code.setLanguage` needs a code block; the addressed block is not one")),
     }
 }
 

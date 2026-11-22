@@ -274,6 +274,14 @@ export type EditOperation =
       }
     | { readonly type: 'quote.append'; readonly text: string }
     | { readonly type: 'code.append'; readonly text: string; readonly language?: string }
+    | {
+          /** Changes the language tag of an existing code block, keeping its source text. */
+          readonly type: 'code.setLanguage';
+          /** Code block address such as `node-5`. */
+          readonly id: string;
+          /** New tag; omit or use an empty string to clear it. */
+          readonly language?: string;
+      }
     | { readonly type: 'table.append'; readonly rows: readonly (readonly string[])[] }
     | {
           readonly type: 'table.setCaption';

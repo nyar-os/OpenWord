@@ -1074,6 +1074,46 @@ fn list_set_ordered_switches_markers_without_touching_items() {
 }
 
 #[test]
+fn code_set_language_retags_a_block_and_can_clear_it() {
+    let workspace = Workspace::new("codelanguage");
+    let created = create(&json!({ "title": "Code" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "code.append", "text": "let value = 1;", "language": "rust" }] }))
+        .expect("append code");
+
+    let id = "node-1".to_string();
+
+    let tagged = edit(handle, &json!({ "operations": [{ "type": "code.setLanguage", "id": id, "language": "ts" }] }))
+        .expect("retag code");
+    assert_eq!(tagged["results"][0]["type"], json!("code.setLanguage"));
+    assert_eq!(tagged["results"][0]["id"], json!(id));
+    assert_eq!(tagged["results"][0]["language"], json!("ts"));
+
+    let exported = workspace.path("tagged.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("```ts"), "new tag is written: {text}");
+    assert!(!text.contains("```rust"), "old tag is gone: {text}");
+    assert!(text.contains("let value = 1;"), "source text is kept: {text}");
+
+    let cleared = edit(handle, &json!({ "operations": [{ "type": "code.setLanguage", "id": id }] })).expect("clear tag");
+    assert_eq!(cleared["results"][0]["language"], Value::Null);
+    let bare = workspace.path("bare.md");
+    export(handle, "md", &bare, false).expect("export markdown");
+    let text = fs::read_to_string(&bare).expect("read markdown");
+    assert!(!text.contains("```ts"), "tag is cleared: {text}");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    let wrong_block =
+        edit(handle, &json!({ "operations": [{ "type": "code.setLanguage", "id": "node-999999" }] }))
+            .expect_err("unknown block");
+    assert_eq!(wrong_block.code, "object/not-found");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn block_duplicate_copies_a_section_subtree_with_fresh_ids() {
     let workspace = Workspace::new("duplicate-section");
     let created = create(&json!({ "title": "Duplicate section" })).expect("create");

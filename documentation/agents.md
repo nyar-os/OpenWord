@@ -86,10 +86,10 @@ const pdf = await word.export({ format: 'pdf', target: 'offer-review.pdf', overw
 await word.save('offer.oword', { overwrite: true });
 await word.dispose();
 
-// Reopen the native project and inspect the exported review copy.
+// Reopen the native project and inspect the exported DOCX for delivery.
 const reopened = new OpenWord();
 await reopened.open({ path: 'offer.oword' });
-const review = await reopened.inspect({ path: 'offer-review.pdf' }, { checks: ['sections', 'tables', 'fonts'] });
+const review = await reopened.inspect({ path: 'offer.docx' }, { checks: ['sections', 'tables', 'fonts'] });
 console.log(docx.revision, pdf.revision, review.passed, review.issues);
 await reopened.dispose();
 ```

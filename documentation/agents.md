@@ -2,6 +2,10 @@
 
 Concise reference for agents driving the `open-word` CLI or `@wae/open-word` SDK. Documents are authoritative; commands and flags below are taken from `src/cli.ts`, types from `src/types.ts`.
 
+- **GUI** (`open-word open <file>`, `open-word gui`): humans write, review pagination and adjust layout.
+- **SDK**: template filling, anchor-based edits, replacement rules, inspection, DOCX/PDF export and native-project save.
+- **Not delivered yet**: rendered page counts, page-number APIs, SVG/PNG/PDF renderers, and `dotx`/`dotm`/`doc`/`odt` import or export.
+
 ## Discover capabilities first
 
 Always start with the capability preflight:
@@ -43,15 +47,54 @@ Binary: `open-word` (`dist/cli.js`). Global flags: `--json` (machine envelope) a
 | `find` | `<file> <query>` | `--limit <count>` |
 | `stats` | `<file>` | — |
 | `outline` | `<file>` | — |
-| `edit` | `<file>` | `--paragraph`, `--heading` + `--level`, `--heading-id <section-N>` + `--level`, repeatable `--bullet`, repeatable `--numbered` + `--numbered-start`, `--quote`, `--code` + `--code-lang`, `--table <json>`, `--duplicate-block <id>`, `--title`, `--author`, `--expected-revision`, `--out`, `--overwrite` |
+| `edit` | `<file>` | Compatibility only: prefer `word.edit([...])` from TypeScript. Options: `--paragraph`, `--heading` + `--level`, `--heading-id <section-N>` + `--level`, repeatable `--bullet`, repeatable `--numbered` + `--numbered-start`, `--quote`, `--code` + `--code-lang`, `--table <json>`, `--duplicate-block <id>`, `--title`, `--author`, `--expected-revision`, `--out`, `--overwrite` |
 | `replace` | `<file>` | `--find`, `--with`, `--ignore-case`, `--whole-word`, `--out`, `--overwrite` |
-| `template` | `<file>` | `--values <json>` (required), `--out <file>` (required), `--overwrite` |
+| `template` | `<file>` | Compatibility only: `edit([{ type: 'template.fill', values }])` is the recommended form. `--values <json>` (required), `--out <file>` (required), `--overwrite` |
 | `undo` / `redo` | `<file>` | `--steps <count>` |
 | `merge` | `<file> <other>` | — |
 | `export` | `<file>` | `--format docx\|dotx\|pdf\|html\|md\|txt\|rtf`, `--out <file>`, `--overwrite` |
 | `gui` | — | — |
 
 Exit codes: `0` success, `1` a failed inspection (`passed: false`) or an action failure, `2` argument/validation failure. `undo`, `redo` and `merge` write back only when the input is `.oword`; other formats stay in memory because a one-shot CLI process has an empty history.
+
+## Recommended workflows
+
+Start a user-facing session with one command:
+
+```bash
+open-word create --out draft.docx --title "Account review" --overwrite
+open-word open draft.docx
+```
+
+Humans use the GUI (`open-word open`, `open-word gui`) for layout and pagination review. Agents fill templates, apply replacement rules and export through a TypeScript script; the CLI `edit` and `template` commands stay for compatibility but are no longer the recommended entry.
+
+```ts
+import { OpenWord } from '@wae/open-word';
+
+const word = new OpenWord();
+await word.open({ path: 'offer-template.docx' });
+
+// Fill business data, then normalise wording and check the delivered format.
+await word.edit([
+    { type: 'template.fill', values: { customer: 'ACME', amount: '1,200.00', due: '2026-12-01' } },
+    { type: 'paragraph.append', text: 'Payment is due within 30 days.' },
+]);
+await word.replace('DRAFT', 'FINAL', { wholeWord: true });
+
+const docx = await word.export({ format: 'docx', target: 'offer.docx', overwrite: true });
+const pdf = await word.export({ format: 'pdf', target: 'offer-review.pdf', overwrite: true });
+await word.save('offer.oword', { overwrite: true });
+await word.dispose();
+
+// Reopen the native project and inspect the exported review copy.
+const reopened = new OpenWord();
+await reopened.open({ path: 'offer.oword' });
+const review = await reopened.inspect({ path: 'offer-review.pdf' }, { checks: ['sections', 'tables', 'fonts'] });
+console.log(docx.revision, pdf.revision, review.passed, review.issues);
+await reopened.dispose();
+```
+
+Paginate the exported PDF rather than predicting page breaks from the document model; the engine has no page-count API. `inspect` accepts only the checks listed in the capability matrix.
 
 ## Edit-operation JSON
 

@@ -125,6 +125,7 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `code.setLanguage` | `id` (`node-N`), `language?`; changes only the tag, an omitted or empty tag clears it |
 | `table.append` | `rows: string[][]` (at least one row and cell) |
 | `table.setCaption` | `table`, `caption?`; omit or `null` clears, a present caption is trimmed and must not be blank |
+| `table.setHeader` | `table` (zero-based), `cells: string[]`; replaces the header row, an empty array removes it |
 | `metadata.set` | at least one of `title`, `author` |
 | `document.replaceText` | `find` (non-empty), `replace`, `caseSensitive?`, `wholeWord?`, `regex?`, `limit?` |
 | `block.remove` | `id` (`section-N` or `node-N`) |

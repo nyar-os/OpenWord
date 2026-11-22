@@ -25,6 +25,7 @@ enum Operation {
     SetCodeLanguage { block: NodeId, language: Option<String> },
     Table(Vec<Vec<String>>),
     SetCaption { table: usize, caption: Option<String> },
+    SetTableHeader { table: usize, cells: Vec<String> },
     Metadata { title: Option<String>, author: Option<String> },
     ReplaceText(replace::Request),
     RemoveBlock { id: NodeId },
@@ -162,6 +163,10 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
         "code.setLanguage" => Ok(Operation::SetCodeLanguage {
             block: parse_block_id(operation)?,
             language: optional_text(operation, "language")?.filter(|value| !value.trim().is_empty()),
+        }),
+        "table.setHeader" => Ok(Operation::SetTableHeader {
+            table: required_index(operation, "table")?,
+            cells: required_strings(operation, "cells")?,
         }),
         "table.setCaption" => {
             let caption = optional_text(operation, "caption")?.map(|caption| caption.trim().to_owned());
@@ -301,6 +306,20 @@ fn optional_index(operation: &Value, key: &str) -> Result<Option<usize>, Service
 fn required_index(operation: &Value, key: &str) -> Result<usize, ServiceError> {
     optional_index(operation, key)?
         .ok_or_else(|| crate::invalid(format!("this edit operation needs a non-negative integer `{key}`")))
+}
+
+/// Reads a string array, allowing an empty array so callers can clear a field.
+fn required_strings(operation: &Value, key: &str) -> Result<Vec<String>, ServiceError> {
+    let values = operation
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| crate::invalid(format!("`{key}` must be an array of strings")))?;
+    values
+        .iter()
+        .map(|value| {
+            value.as_str().map(str::to_string).ok_or_else(|| crate::invalid(format!("`{key}` must contain only strings")))
+        })
+        .collect()
 }
 
 fn required_rows(operation: &Value) -> Result<Vec<Vec<String>>, ServiceError> {
@@ -447,6 +466,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
         Operation::Table(rows) => {
             append_table(graph, rows);
             Ok(json!({ "type": "table.append" }))
+        }
+        Operation::SetTableHeader { table, cells } => {
+            set_table_header(graph, table, cells.clone())?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.setHeader", "table": table, "cells": cells }))
         }
         Operation::SetCaption { table, caption } => {
             set_caption(graph, table, caption.clone())?;
@@ -885,6 +909,34 @@ fn insert_after_source(graph: &mut DocumentGraph, target: NodeId, new_id: NodeId
         }
     }
     false
+}
+
+/// Replaces the header row of one table.
+///
+/// An empty `cells` array removes the header, so the first body row becomes the
+/// visual top; a non-empty array creates exactly one header row.
+fn set_table_header(graph: &mut DocumentGraph, table: usize, cells: Vec<String>) -> Result<(), ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let head = if cells.is_empty() {
+        Vec::new()
+    }
+    else {
+        let cells = cells
+            .into_iter()
+            .map(|text| {
+                let child = graph.push_block(Block::Paragraph { content: vec![Inline::Text { text }] });
+                document_ir::TableCell { children: vec![child], colspan: 1, rowspan: 1 }
+            })
+            .collect();
+        vec![TableRow { cells }]
+    };
+    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+    let Block::Table { head: current, .. } = &mut node.block
+    else {
+        unreachable!("the id was filtered to a table block");
+    };
+    *current = head;
+    Ok(())
 }
 
 /// Sets or clears the caption of the table at `table` in document order.

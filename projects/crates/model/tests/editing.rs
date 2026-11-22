@@ -1074,6 +1074,39 @@ fn list_set_ordered_switches_markers_without_touching_items() {
 }
 
 #[test]
+fn table_set_header_replaces_and_clears_the_header_row() {
+    let workspace = Workspace::new("tableheader");
+    let created = create(&json!({ "title": "Table" })).expect("create");
+    let handle = handle_of(&created);
+    edit(
+        handle,
+        &json!({ "operations": [{ "type": "table.append", "rows": [["a", "b"], ["1", "2"]] }] }),
+    )
+    .expect("append table");
+
+    let changed =
+        edit(handle, &json!({ "operations": [{ "type": "table.setHeader", "table": 0, "cells": ["Name", "Value"] }] }))
+            .expect("set header");
+    assert_eq!(changed["results"][0]["type"], json!("table.setHeader"));
+    assert_eq!(changed["results"][0]["cells"], json!(["Name", "Value"]));
+
+    let exported = workspace.path("header.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("| Name | Value |"), "new header is written: {text}");
+    assert!(!text.contains("| a | b |"), "old header row is gone: {text}");
+
+    edit(handle, &json!({ "operations": [{ "type": "table.setHeader", "table": 0, "cells": [] }] }))
+        .expect("clear header");
+    let cleared = workspace.path("cleared.md");
+    export(handle, "md", &cleared, false).expect("export markdown");
+    let text = fs::read_to_string(&cleared).expect("read markdown");
+    assert!(text.contains("| 1 | 2 |"), "the remaining body row becomes the top: {text}");
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn code_set_language_retags_a_block_and_can_clear_it() {
     let workspace = Workspace::new("codelanguage");
     let created = create(&json!({ "title": "Code" })).expect("create");

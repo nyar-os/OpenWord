@@ -284,6 +284,13 @@ export type EditOperation =
       }
     | { readonly type: 'table.append'; readonly rows: readonly (readonly string[])[] }
     | {
+          /** Replaces the table header row; an empty array removes the header. */
+          readonly type: 'table.setHeader';
+          /** Zero-based table index in document order. */
+          readonly table: number;
+          readonly cells: readonly string[];
+      }
+    | {
           readonly type: 'table.setCaption';
           /** Zero-based table index in document order. */
           readonly table: number;
@@ -361,6 +368,8 @@ export interface EditOperationResult {
     readonly column?: number;
     /** Caption set or cleared by `table.setCaption`; `null` when cleared. */
     readonly caption?: string | null;
+    /** Header cells applied by `table.setHeader`. */
+    readonly cells?: readonly string[];
     /** Level applied by `heading.setLevel`. */
     readonly level?: number;
     /** Title applied by `heading.setText`. */

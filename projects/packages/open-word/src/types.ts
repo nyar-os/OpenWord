@@ -260,6 +260,14 @@ export type EditOperation =
           readonly start?: number;
       }
     | {
+          /** Switches an existing list between bullets and numbers, keeping its items. */
+          readonly type: 'list.setOrdered';
+          /** List address such as `node-4`. */
+          readonly id: string;
+          /** `true` renders numbers, `false` renders bullets. */
+          readonly ordered: boolean;
+      }
+    | {
           readonly type: 'taskList.append';
           /** A string item is unchecked; an object may set `checked`. */
           readonly items: readonly (string | { readonly text: string; readonly checked?: boolean })[];

@@ -1031,6 +1031,49 @@ fn ordered_list_start_numbers_items_from_the_requested_value() {
 }
 
 #[test]
+fn list_set_ordered_switches_markers_without_touching_items() {
+    let workspace = Workspace::new("listordered");
+    let created = create(&json!({ "title": "Markers" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "list.append", "items": ["alpha", "beta"] }] }))
+        .expect("append bullets");
+
+    let hits = find(handle, "alpha", None).expect("find list item");
+    let id = hits.as_array().expect("hits")[0]["blockId"].as_str().expect("block id").to_string();
+
+    let numbered = edit(handle, &json!({ "operations": [{ "type": "list.setOrdered", "id": id, "ordered": true }] }))
+        .expect("switch to numbers");
+    assert_eq!(numbered["results"][0]["type"], json!("list.setOrdered"));
+    assert_eq!(numbered["results"][0]["id"], json!(id));
+    assert_eq!(numbered["results"][0]["ordered"], json!(true));
+
+    let exported = workspace.path("numbered.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("1. alpha"), "numbers replace bullets: {text}");
+    assert!(text.contains("2. beta"), "item order is kept: {text}");
+    assert!(!text.contains("- alpha"), "bullets are gone: {text}");
+
+    let bullets = edit(handle, &json!({ "operations": [{ "type": "list.setOrdered", "id": id, "ordered": false }] }))
+        .expect("switch back to bullets");
+    assert_eq!(bullets["results"][0]["ordered"], json!(false));
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    let wrong_block = edit(
+        handle,
+        &json!({ "operations": [{ "type": "list.setOrdered", "id": "node-999999", "ordered": true }] }),
+    )
+    .expect_err("unknown block");
+    assert_eq!(wrong_block.code, "object/not-found");
+    let missing_flag =
+        edit(handle, &json!({ "operations": [{ "type": "list.setOrdered", "id": id }] })).expect_err("missing ordered");
+    assert_eq!(missing_flag.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn block_duplicate_copies_a_section_subtree_with_fresh_ids() {
     let workspace = Workspace::new("duplicate-section");
     let created = create(&json!({ "title": "Duplicate section" })).expect("create");

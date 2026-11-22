@@ -18,6 +18,7 @@ enum Operation {
     HeadingLevel { section: NodeId, level: u8 },
     HeadingText { section: NodeId, text: String },
     List { ordered: bool, items: Vec<String>, start: Option<u32> },
+    SetListOrdered { list: NodeId, ordered: bool },
     TaskList(Vec<(String, bool)>),
     Quote(String),
     Code { text: String, language: Option<String> },
@@ -136,6 +137,11 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             Ok(Operation::List { ordered, items, start })
         }
         "taskList.append" => Ok(Operation::TaskList(required_tasks(operation)?)),
+        "list.setOrdered" => {
+            let ordered = optional_bool(operation, "ordered")?
+                .ok_or_else(|| crate::invalid("`list.setOrdered` needs a boolean `ordered`"))?;
+            Ok(Operation::SetListOrdered { list: parse_block_id(operation)?, ordered })
+        }
         "quote.append" => {
             let text = required_text(operation, "text")?;
             if text.is_empty() {
@@ -408,6 +414,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             let count = items.len();
             append_list(graph, ordered, items, start);
             Ok(json!({ "type": "list.append", "ordered": ordered, "items": count, "start": start }))
+        }
+        Operation::SetListOrdered { list, ordered } => {
+            let label = set_list_ordered(graph, list, ordered)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "list.setOrdered", "id": label, "ordered": ordered }))
         }
         Operation::TaskList(items) => {
             let count = items.len();
@@ -1182,6 +1193,30 @@ fn set_heading_level(graph: &mut DocumentGraph, id: NodeId, level: u8) -> Result
             Ok(label)
         }
         _ => Err(crate::invalid("`heading.setLevel` needs a heading section; the addressed block is not one")),
+    }
+}
+
+/// Switches one existing list between bullets and numbers and returns its address.
+///
+/// Only the marker style changes; items and nesting stay as they are. Numbers
+/// restart at 1 when the list becomes ordered and are cleared when it becomes
+/// unordered, because the IR requires explicit numbers on ordered items.
+fn set_list_ordered(graph: &mut DocumentGraph, id: NodeId, ordered: bool) -> Result<String, ServiceError> {
+    if !graph.blocks.iter().any(|node| node.id == id) {
+        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+    }
+    let label =
+        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+    match &mut node.block {
+        Block::List { ordered: current, items, .. } => {
+            *current = ordered;
+            for (index, item) in items.iter_mut().enumerate() {
+                item.number = if ordered { Some(index as u32 + 1) } else { None };
+            }
+            Ok(label)
+        }
+        _ => Err(crate::invalid("`list.setOrdered` needs a list; the addressed block is not one")),
     }
 }
 

@@ -75,6 +75,7 @@ Exit codes: `0` success, `1` a failed inspection (`passed: false`) or an action 
 | `heading.setLevel` | `id` (`section-N`), `level` 1–6; changes only the level, keeping the title and children |
 | `heading.setText` | `id` (`section-N`), `text`; replaces only the title, keeping the level, children and position |
 | `list.append` | `items: string[]`, `ordered?`, `start?` (ordered only) |
+| `list.setOrdered` | `id` (`node-N`), `ordered`; switches between bullets and numbers, keeping items and nesting |
 | `taskList.append` | `items: (string \| { text, checked? })[]`; exports keep `[ ]`/`[x]` |
 | `quote.append` | `text` (non-empty) |
 | `code.append` | `text` (non-empty), `language?` |

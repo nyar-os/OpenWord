@@ -16,6 +16,7 @@ enum Operation {
     Paragraph(String),
     Heading { level: u8, text: String },
     List { ordered: bool, items: Vec<String>, start: Option<u32> },
+    TaskList(Vec<(String, bool)>),
     Quote(String),
     Code { text: String, language: Option<String> },
     Table(Vec<Vec<String>>),
@@ -112,6 +113,7 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             let start = parse_list_start(operation, ordered, items.len())?;
             Ok(Operation::List { ordered, items, start })
         }
+        "taskList.append" => Ok(Operation::TaskList(required_tasks(operation)?)),
         "quote.append" => {
             let text = required_text(operation, "text")?;
             if text.is_empty() {
@@ -293,6 +295,37 @@ fn required_items(operation: &Value) -> Result<Vec<String>, ServiceError> {
         .collect()
 }
 
+/// Parses `taskList.append` items. A string item is unchecked; an object may
+/// carry `{ "text": "...", "checked": true }`.
+fn required_tasks(operation: &Value) -> Result<Vec<(String, bool)>, ServiceError> {
+    let items = operation
+        .get("items")
+        .and_then(Value::as_array)
+        .ok_or_else(|| crate::invalid("`taskList.append` needs an `items` array"))?;
+    if items.is_empty() {
+        return Err(crate::invalid("`items` must contain at least one task item"));
+    }
+    items
+        .iter()
+        .map(|item| match item {
+            Value::String(text) => Ok((text.clone(), false)),
+            Value::Object(fields) => {
+                let text = fields
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .ok_or_else(|| crate::invalid("each task item object needs a `text` string"))?;
+                match fields.get("checked") {
+                    None | Some(Value::Null) => Ok((text, false)),
+                    Some(Value::Bool(checked)) => Ok((text, *checked)),
+                    Some(_) => Err(crate::invalid("task item `checked` must be a boolean")),
+                }
+            }
+            _ => Err(crate::invalid("each task item must be a string or an object with `text`")),
+        })
+        .collect()
+}
+
 fn optional_bool(operation: &Value, key: &str) -> Result<Option<bool>, ServiceError> {
     match operation.get(key) {
         None | Some(Value::Null) => Ok(None),
@@ -334,6 +367,12 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             let count = items.len();
             append_list(graph, ordered, items, start);
             Ok(json!({ "type": "list.append", "ordered": ordered, "items": count, "start": start }))
+        }
+        Operation::TaskList(items) => {
+            let count = items.len();
+            let checked = items.iter().filter(|(_, checked)| *checked).count();
+            append_tasks(graph, items);
+            Ok(json!({ "type": "taskList.append", "items": count, "checked": checked }))
         }
         Operation::Quote(text) => {
             append_quote(graph, text);
@@ -441,6 +480,22 @@ fn append_list(graph: &mut DocumentGraph, ordered: bool, items: Vec<String>, sta
         })
         .collect();
     append_block(graph, Block::List { ordered, items });
+}
+
+/// Appends one unordered list whose items are tasks, preserving each check
+/// state so Markdown and HTML exports keep their `[x]`/`[ ]` markers.
+fn append_tasks(graph: &mut DocumentGraph, items: Vec<(String, bool)>) {
+    let items = items
+        .into_iter()
+        .map(|(text, checked)| ListItem {
+            content: vec![Inline::Text { text }],
+            children: Vec::new(),
+            number: None,
+            is_task: true,
+            is_checked: Some(checked),
+        })
+        .collect();
+    append_block(graph, Block::List { ordered: false, items });
 }
 
 /// Appends one quote block wrapping a single paragraph child.

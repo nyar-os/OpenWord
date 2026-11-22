@@ -363,6 +363,8 @@ cli
     .option('--bullet <text>...', 'cli.opt.bullet')
     .option('--numbered <text>...', 'cli.opt.numbered')
     .option('--numbered-start <n>', 'cli.opt.numberedStart')
+    .option('--task <text>...', 'cli.opt.task')
+    .option('--task-done <text>...', 'cli.opt.taskDone')
     .option('--quote <text>', 'cli.opt.quote')
     .option('--code <text>', 'cli.opt.code')
     .option('--code-lang <lang>', 'cli.opt.codeLang')
@@ -416,6 +418,13 @@ cli
                 items: numbered,
                 ...(numberedStart === undefined ? {} : { start: numberedStart }),
             });
+        }
+        const tasks = [
+            ...texts(options, 'task').map((text) => ({ text })),
+            ...texts(options, 'task-done').map((text) => ({ text, checked: true })),
+        ];
+        if (tasks.length > 0) {
+            operations.push({ type: 'taskList.append', items: tasks });
         }
         const quote = text(options, 'quote');
         if (quote !== undefined) {

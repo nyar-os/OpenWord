@@ -747,6 +747,49 @@ fn list_and_quote_appends_extend_counts_and_export_markdown() {
 }
 
 #[test]
+fn task_list_append_records_check_state_and_exports_markers() {
+    let workspace = Workspace::new("tasks");
+    let created = create(&json!({ "title": "Tasks" })).expect("create");
+    let handle = handle_of(&created);
+    let before = stats(handle).expect("stats");
+
+    let edited = edit(
+        handle,
+        &json!({
+            "operations": [{ "type": "taskList.append", "items": [
+                "write tests",
+                { "text": "ship", "checked": true },
+            ] }]
+        }),
+    )
+    .expect("append tasks");
+    assert_eq!(edited["results"][0]["type"], json!("taskList.append"));
+    assert_eq!(edited["results"][0]["items"], json!(2));
+    assert_eq!(edited["results"][0]["checked"], json!(1));
+    let after = stats(handle).expect("stats");
+    assert_eq!(after["blocks"].as_u64().unwrap(), before["blocks"].as_u64().unwrap() + 1);
+
+    let markdown = workspace.path("tasks.md");
+    export(handle, "md", &markdown, false).expect("export markdown");
+    let text = fs::read_to_string(&markdown).expect("read markdown");
+    assert!(text.contains("- [ ] write tests"), "unchecked task: {text}");
+    assert!(text.contains("- [x] ship"), "checked task: {text}");
+
+    let before_error = revision_of(&summary(handle).expect("summary"));
+    for request in [
+        json!({ "operations": [{ "type": "taskList.append", "items": [] }] }),
+        json!({ "operations": [{ "type": "taskList.append", "items": [{ "checked": true }] }] }),
+        json!({ "operations": [{ "type": "taskList.append", "items": [{ "text": "x", "checked": "yes" }] }] }),
+    ] {
+        let error = edit(handle, &request).expect_err("invalid task list");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before_error);
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn code_append_adds_a_fenced_block_and_counts_it() {
     let workspace = Workspace::new("code");
     let created = create(&json!({ "title": "Code" })).expect("create");

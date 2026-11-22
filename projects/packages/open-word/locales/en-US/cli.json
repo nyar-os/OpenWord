@@ -31,6 +31,8 @@
             "level": "Heading level between 1 and 6",
             "bullet": "Append an unordered list item (repeat the option to add more)",
             "numbered": "Append an ordered list item (repeat the option to add more)",
+            "task": "Append an unchecked task item (repeat the option to add more)",
+            "taskDone": "Append a checked task item (repeat the option to add more)",
             "numberedStart": "First number of the appended ordered list (default 1)",
             "quote": "Append a block quote with this text",
             "code": "Append a fenced code block with this text",

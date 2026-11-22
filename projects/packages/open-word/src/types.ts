@@ -243,6 +243,11 @@ export type EditOperation =
           /** First number of an ordered list. Defaults to 1; invalid for unordered lists. */
           readonly start?: number;
       }
+    | {
+          readonly type: 'taskList.append';
+          /** A string item is unchecked; an object may set `checked`. */
+          readonly items: readonly (string | { readonly text: string; readonly checked?: boolean })[];
+      }
     | { readonly type: 'quote.append'; readonly text: string }
     | { readonly type: 'code.append'; readonly text: string; readonly language?: string }
     | { readonly type: 'table.append'; readonly rows: readonly (readonly string[])[] }
@@ -299,8 +304,10 @@ export interface EditOperationResult {
     readonly newId?: string;
     /** Depth-first position the block an operation created now holds. */
     readonly index?: number;
-    /** List items created by `list.append`. */
+    /** List items created by `list.append` or `taskList.append`. */
     readonly items?: number;
+    /** Checked items created by `taskList.append`. */
+    readonly checked?: number;
     /** Whether the list appended by `list.append` is ordered. */
     readonly ordered?: boolean;
     /** First number requested by `list.append`; `null` when none was given or the list is unordered. */

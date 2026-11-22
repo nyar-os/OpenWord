@@ -73,6 +73,7 @@ Exit codes: `0` success, `1` a failed inspection (`passed: false`) or an action 
 | `paragraph.append` | `text` |
 | `heading.append` | `level` 1–6, `text` |
 | `list.append` | `items: string[]`, `ordered?`, `start?` (ordered only) |
+| `taskList.append` | `items: (string \| { text, checked? })[]`; exports keep `[ ]`/`[x]` |
 | `quote.append` | `text` (non-empty) |
 | `code.append` | `text` (non-empty), `language?` |
 | `table.append` | `rows: string[][]` (at least one row and cell) |

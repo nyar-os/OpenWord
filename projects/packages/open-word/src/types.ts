@@ -251,6 +251,13 @@ export type EditOperation =
     | { readonly type: 'quote.append'; readonly text: string }
     | { readonly type: 'code.append'; readonly text: string; readonly language?: string }
     | { readonly type: 'table.append'; readonly rows: readonly (readonly string[])[] }
+    | {
+          readonly type: 'table.setCaption';
+          /** Zero-based table index in document order. */
+          readonly table: number;
+          /** New caption. Omit or `null` to clear the caption. */
+          readonly caption?: string | null;
+      }
     | { readonly type: 'metadata.set'; readonly title?: string; readonly author?: string }
     | {
           readonly type: 'document.replaceText';
@@ -320,6 +327,8 @@ export interface EditOperationResult {
     readonly row?: number;
     /** Grid column index addressed by a column operation. */
     readonly column?: number;
+    /** Caption set or cleared by `table.setCaption`; `null` when cleared. */
+    readonly caption?: string | null;
 }
 
 /** Result of one edit batch. */

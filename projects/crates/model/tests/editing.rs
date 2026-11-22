@@ -321,6 +321,47 @@ fn table_set_cell_replaces_content_and_checks_bounds() {
 }
 
 #[test]
+fn table_set_caption_sets_trims_and_clears_the_caption() {
+    let workspace = Workspace::new("caption");
+    let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");
+    let handle = handle_of(&opened);
+
+    let updated = edit(
+        handle,
+        &json!({ "operations": [{ "type": "table.setCaption", "table": 0, "caption": "  Quarterly results  " }] }),
+    )
+    .expect("set caption");
+    assert_eq!(updated["results"][0]["type"], json!("table.setCaption"));
+    assert_eq!(updated["results"][0]["table"], json!(0));
+    assert_eq!(updated["results"][0]["caption"], json!("Quarterly results"));
+    assert_eq!(updated["revision"], json!(1));
+
+    let project = workspace.path("report.oword");
+    save(handle, &project, false).expect("save project");
+    let envelope: Value = serde_json::from_slice(&fs::read(&project).expect("read project")).expect("parse project");
+    let blocks = envelope["document"]["blocks"].as_array().expect("blocks");
+    let table = blocks.iter().find(|node| node["block"].get("Table").is_some()).expect("table block");
+    assert_eq!(table["block"]["Table"]["caption"], json!("Quarterly results"));
+
+    let cleared =
+        edit(handle, &json!({ "operations": [{ "type": "table.setCaption", "table": 0 }] })).expect("clear caption");
+    assert_eq!(cleared["results"][0]["caption"], Value::Null);
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    for operation in [
+        json!({ "type": "table.setCaption", "table": 7, "caption": "late" }),
+        json!({ "type": "table.setCaption", "table": 0, "caption": "   " }),
+        json!({ "type": "table.setCaption" }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid caption must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn find_reports_character_offsets() {
     let workspace = Workspace::new("find");
     let opened =

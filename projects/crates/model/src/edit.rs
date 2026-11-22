@@ -20,6 +20,7 @@ enum Operation {
     Quote(String),
     Code { text: String, language: Option<String> },
     Table(Vec<Vec<String>>),
+    SetCaption { table: usize, caption: Option<String> },
     Metadata { title: Option<String>, author: Option<String> },
     ReplaceText(replace::Request),
     RemoveBlock { id: NodeId },
@@ -130,6 +131,15 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             Ok(Operation::Code { text, language })
         }
         "table.append" => Ok(Operation::Table(required_rows(operation)?)),
+        "table.setCaption" => {
+            let caption = optional_text(operation, "caption")?.map(|caption| caption.trim().to_owned());
+            if caption.as_deref() == Some("") {
+                return Err(crate::invalid(
+                    "`table.setCaption` needs a non-empty `caption`, or omit it to clear the caption",
+                ));
+            }
+            Ok(Operation::SetCaption { table: required_index(operation, "table")?, caption })
+        }
         "metadata.set" => {
             let title = optional_text(operation, "title")?;
             let author = optional_text(operation, "author")?;
@@ -385,6 +395,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
         Operation::Table(rows) => {
             append_table(graph, rows);
             Ok(json!({ "type": "table.append" }))
+        }
+        Operation::SetCaption { table, caption } => {
+            set_caption(graph, table, caption.clone())?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.setCaption", "table": table, "caption": caption }))
         }
         Operation::Metadata { title, author } => {
             if let Some(title) = title {
@@ -818,6 +833,18 @@ fn insert_after_source(graph: &mut DocumentGraph, target: NodeId, new_id: NodeId
         }
     }
     false
+}
+
+/// Sets or clears the caption of the table at `table` in document order.
+fn set_caption(graph: &mut DocumentGraph, table: usize, caption: Option<String>) -> Result<(), ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+    let Block::Table { caption: current, .. } = &mut node.block
+    else {
+        unreachable!("the id was filtered to a table block");
+    };
+    *current = caption;
+    Ok(())
 }
 
 fn set_cell(graph: &mut DocumentGraph, table: usize, row: usize, column: usize, text: String) -> Result<(), ServiceError> {

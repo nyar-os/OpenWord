@@ -77,6 +77,7 @@ Exit codes: `0` success, `1` a failed inspection (`passed: false`) or an action 
 | `quote.append` | `text` (non-empty) |
 | `code.append` | `text` (non-empty), `language?` |
 | `table.append` | `rows: string[][]` (at least one row and cell) |
+| `table.setCaption` | `table`, `caption?`; omit or `null` clears, a present caption is trimmed and must not be blank |
 | `metadata.set` | at least one of `title`, `author` |
 | `document.replaceText` | `find` (non-empty), `replace`, `caseSensitive?`, `wholeWord?`, `regex?`, `limit?` |
 | `block.remove` | `id` (`section-N` or `node-N`) |

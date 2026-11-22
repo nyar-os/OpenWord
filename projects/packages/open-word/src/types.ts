@@ -268,6 +268,14 @@ export type EditOperation =
           readonly ordered: boolean;
       }
     | {
+          /** Renumbers an existing ordered list from a new first value. */
+          readonly type: 'list.setStart';
+          /** List address such as `node-4`. */
+          readonly id: string;
+          /** New first number; must be a positive integer. */
+          readonly start: number;
+      }
+    | {
           readonly type: 'taskList.append';
           /** A string item is unchecked; an object may set `checked`. */
           readonly items: readonly (string | { readonly text: string; readonly checked?: boolean })[];
@@ -356,7 +364,7 @@ export interface EditOperationResult {
     readonly checked?: number;
     /** Whether the list appended by `list.append` is ordered. */
     readonly ordered?: boolean;
-    /** First number requested by `list.append`; `null` when none was given or the list is unordered. */
+    /** First number requested by `list.append` or applied by `list.setStart`; `null` when none was given or the list is unordered. */
     readonly start?: number | null;
     /** Language tag of the code block appended by `code.append`; `null` when none was given. */
     readonly language?: string | null;

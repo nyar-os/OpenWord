@@ -119,6 +119,7 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `heading.setText` | `id` (`section-N`), `text`; replaces only the title, keeping the level, children and position |
 | `list.append` | `items: string[]`, `ordered?`, `start?` (ordered only) |
 | `list.setOrdered` | `id` (`node-N`), `ordered`; switches between bullets and numbers, keeping items and nesting |
+| `list.setStart` | `id` (`node-N`), `start` (positive integer); renumbers an ordered list from `start`, bullets are refused |
 | `taskList.append` | `items: (string \| { text, checked? })[]`; exports keep `[ ]`/`[x]` |
 | `quote.append` | `text` (non-empty) |
 | `code.append` | `text` (non-empty), `language?` |

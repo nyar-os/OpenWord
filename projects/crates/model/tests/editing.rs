@@ -1074,6 +1074,39 @@ fn list_set_ordered_switches_markers_without_touching_items() {
 }
 
 #[test]
+fn list_set_start_renumbers_an_ordered_list() {
+    let workspace = Workspace::new("liststart");
+    let created = create(&json!({ "title": "Start" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "list.append", "ordered": true, "items": ["alpha", "beta"] }] }))
+        .expect("append numbers");
+
+    let hits = find(handle, "alpha", None).expect("find list item");
+    let id = hits.as_array().expect("hits")[0]["blockId"].as_str().expect("block id").to_string();
+
+    let renumbered =
+        edit(handle, &json!({ "operations": [{ "type": "list.setStart", "id": id, "start": 4 }] })).expect("renumber");
+    assert_eq!(renumbered["results"][0]["type"], json!("list.setStart"));
+    assert_eq!(renumbered["results"][0]["start"], json!(4));
+
+    let exported = workspace.path("renumbered.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("4. alpha"), "the first number moves: {text}");
+    assert!(text.contains("5. beta"), "later numbers follow it: {text}");
+
+    edit(handle, &json!({ "operations": [{ "type": "list.setOrdered", "id": id, "ordered": false }] }))
+        .expect("switch to bullets");
+    let before = revision_of(&summary(handle).expect("summary"));
+    let unordered =
+        edit(handle, &json!({ "operations": [{ "type": "list.setStart", "id": id, "start": 2 }] })).expect_err("bullets");
+    assert_eq!(unordered.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn table_set_header_replaces_and_clears_the_header_row() {
     let workspace = Workspace::new("tableheader");
     let created = create(&json!({ "title": "Table" })).expect("create");

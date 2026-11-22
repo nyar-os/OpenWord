@@ -19,6 +19,7 @@ enum Operation {
     HeadingText { section: NodeId, text: String },
     List { ordered: bool, items: Vec<String>, start: Option<u32> },
     SetListOrdered { list: NodeId, ordered: bool },
+    SetListStart { list: NodeId, start: u32 },
     TaskList(Vec<(String, bool)>),
     Quote(String),
     Code { text: String, language: Option<String> },
@@ -143,6 +144,13 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             let ordered = optional_bool(operation, "ordered")?
                 .ok_or_else(|| crate::invalid("`list.setOrdered` needs a boolean `ordered`"))?;
             Ok(Operation::SetListOrdered { list: parse_block_id(operation)?, ordered })
+        }
+        "list.setStart" => {
+            let start = required_index(operation, "start")?;
+            if start == 0 || start > u32::MAX as usize {
+                return Err(crate::invalid("`list.setStart` needs a positive integer `start` that fits in u32"));
+            }
+            Ok(Operation::SetListStart { list: parse_block_id(operation)?, start: start as u32 })
         }
         "quote.append" => {
             let text = required_text(operation, "text")?;
@@ -443,6 +451,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             let label = set_list_ordered(graph, list, ordered)?;
             graph.bump_revision();
             Ok(json!({ "type": "list.setOrdered", "id": label, "ordered": ordered }))
+        }
+        Operation::SetListStart { list, start } => {
+            let label = set_list_start(graph, list, start)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "list.setStart", "id": label, "start": start }))
         }
         Operation::TaskList(items) => {
             let count = items.len();
@@ -1299,6 +1312,35 @@ fn set_list_ordered(graph: &mut DocumentGraph, id: NodeId, ordered: bool) -> Res
             Ok(label)
         }
         _ => Err(crate::invalid("`list.setOrdered` needs a list; the addressed block is not one")),
+    }
+}
+
+/// Renumbers one ordered list from `start` and returns its address.
+///
+/// The item count decides whether the range fits in `u32`; unordered lists are
+/// refused because their items carry no numbers to move.
+fn set_list_start(graph: &mut DocumentGraph, id: NodeId, start: u32) -> Result<String, ServiceError> {
+    if !graph.blocks.iter().any(|node| node.id == id) {
+        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+    }
+    let label =
+        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+    match &mut node.block {
+        Block::List { ordered: true, items, .. } => {
+            for (index, item) in items.iter_mut().enumerate() {
+                item.number = Some(
+                    start
+                        .checked_add(index as u32)
+                        .ok_or_else(|| crate::invalid("the renumbered range would overflow u32"))?,
+                );
+            }
+            Ok(label)
+        }
+        Block::List { ordered: false, .. } => {
+            Err(crate::invalid("`list.setStart` needs an ordered list; switch it with `list.setOrdered` first"))
+        }
+        _ => Err(crate::invalid("`list.setStart` needs a list; the addressed block is not one")),
     }
 }
 

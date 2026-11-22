@@ -11,9 +11,20 @@ registry (`.docx`/`.docm`/`.dotx`/`.dotm`/`.doc`/`.rtf`/`.odt`/`.txt`/`.md`/
 
 Engine calls go through the native binding: create and open documents, inspect
 structure, search text with per-block character offsets, apply atomic edits
-(append, insert, replace, remove, paragraph updates, block moves, table cell and
-row/column changes), undo/redo those edits, merge another document into the open
-one, save project containers and export `docx`/`md`/`html`/`pdf`/`txt`/`rtf`.
+(append, insert, replace, remove, paragraph updates, block moves, block
+duplication, table cell and row/column changes), undo/redo those edits, merge
+another document into the open one, save project containers and export
+`docx`/`md`/`html`/`pdf`/`txt`/`rtf`.
+
+```ts
+await word.edit([{ type: 'block.duplicate', id: 'section-2' }]);
+```
+
+`block.duplicate` deep-copies the addressed block and its nested blocks with
+fresh node ids, keeps inline content, styles and table structure, and inserts
+the copy directly after the source in the same container (or at the top level
+when the source is a top-level block). It reports the fresh `newId` and the
+copy's depth-first `index`, and advances the revision once.
 
 Undo and redo are session state: each successful edit (and each merge) records
 the prior graph, the history is capped at 50 mutations, a new edit discards the

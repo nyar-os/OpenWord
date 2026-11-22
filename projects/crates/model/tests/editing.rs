@@ -786,6 +786,202 @@ fn ordered_list_start_numbers_items_from_the_requested_value() {
 }
 
 #[test]
+fn block_duplicate_copies_a_section_subtree_with_fresh_ids() {
+    let workspace = Workspace::new("duplicate-section");
+    let created = create(&json!({ "title": "Duplicate section" })).expect("create");
+    let handle = handle_of(&created);
+    edit(
+        handle,
+        &json!({
+            "operations": [
+                { "type": "heading.append", "level": 1, "text": "Alpha" },
+                { "type": "paragraph.append", "text": "one" },
+                { "type": "paragraph.append", "text": "two" },
+            ],
+        }),
+    )
+    .expect("seed section");
+    let seeded = summary(handle).expect("summary");
+    assert_eq!(seeded["sections"].as_array().unwrap().len(), 1);
+    assert_eq!(summary_text(&seeded), "one\ntwo");
+    let source = seeded["sections"][0]["id"].as_str().expect("section id").to_string();
+    let before = revision_of(&seeded);
+
+    let duplicated =
+        edit(handle, &json!({ "operations": [{ "type": "block.duplicate", "id": source }] })).expect("duplicate section");
+    assert_eq!(duplicated["results"][0]["type"], json!("block.duplicate"));
+    assert_eq!(duplicated["results"][0]["id"], json!(source));
+    let new_id = duplicated["results"][0]["newId"].as_str().expect("new id").to_string();
+    assert!(new_id.starts_with("node-"), "fresh addresses keep the declared shape: {new_id}");
+    assert_eq!(duplicated["results"][0]["index"], json!(3), "the copy follows the source subtree");
+    assert_eq!(revision_of(&duplicated), before + 1);
+
+    let document = &duplicated["document"];
+    let sections = document["sections"].as_array().expect("sections");
+    assert_eq!(sections.len(), 2);
+    assert_eq!(sections[0]["title"], json!("Alpha"));
+    assert_eq!(sections[1]["title"], json!("Alpha"));
+    assert_ne!(sections[1]["id"], json!(source), "the copy is a new node");
+    assert_eq!(summary_text(document), "one\ntwo\none\ntwo");
+    let paragraphs = document["paragraphs"].as_array().expect("paragraphs");
+    assert_eq!(paragraphs[2]["sectionIndex"], json!(1));
+    assert_eq!(paragraphs[3]["sectionIndex"], json!(1));
+
+    let project = workspace.path("duplicate.oword");
+    save(handle, &project, false).expect("save project");
+    let envelope: Value = serde_json::from_slice(&fs::read(&project).expect("read project")).expect("parse project");
+    let blocks = envelope["document"]["blocks"].as_array().expect("blocks");
+    let source_number = address_number(&source);
+    let copy_number = address_number(&new_id);
+    let source_children = section_children(blocks, source_number);
+    let copy_children = section_children(blocks, copy_number);
+    assert_eq!(source_children.len(), 2);
+    assert_eq!(copy_children.len(), 2);
+    for child in &copy_children {
+        assert!(!source_children.contains(child), "copied child {child} must not alias a source id");
+    }
+    assert_eq!(paragraph_text(blocks, copy_children[0]), "one");
+    assert_eq!(paragraph_text(blocks, copy_children[1]), "two");
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn block_duplicate_copies_a_table_block() {
+    let created = create(&json!({ "title": "Duplicate table" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "table.append", "rows": [["Name", "Value"], ["alpha", "1"]] }] }))
+        .expect("append table");
+    let seeded = summary(handle).expect("summary");
+    assert_eq!(seeded["tables"].as_array().unwrap().len(), 1);
+    let before = revision_of(&seeded);
+
+    let project = Workspace::new("duplicate-table");
+    let target = project.path("table.oword");
+    save(handle, &target, false).expect("save project");
+    let envelope: Value = serde_json::from_slice(&fs::read(&target).expect("read project")).expect("parse project");
+    let blocks = envelope["document"]["blocks"].as_array().expect("blocks");
+    let table = blocks.iter().find(|node| node["block"].get("Table").is_some()).expect("table block");
+    let table_id = table["id"].as_u64().expect("table id");
+    let table_address = format!("node-{table_id}");
+
+    let duplicated =
+        edit(handle, &json!({ "operations": [{ "type": "block.duplicate", "id": table_address }] })).expect("duplicate table");
+    assert_eq!(duplicated["results"][0]["id"], json!(table_address));
+    let new_id = duplicated["results"][0]["newId"].as_str().expect("new id").to_string();
+    assert_ne!(new_id, table_address);
+    assert_eq!(duplicated["results"][0]["index"], json!(5), "the copy follows the source subtree");
+    assert_eq!(revision_of(&duplicated), before + 1);
+
+    let tables = duplicated["document"]["tables"].as_array().expect("tables");
+    assert_eq!(tables.len(), 2);
+    for table in tables {
+        assert_eq!(table["rows"], json!(2));
+        assert_eq!(table["columns"], json!(2));
+    }
+    let hits = find(handle, "alpha", None).expect("find");
+    assert_eq!(hits.as_array().expect("hits").len(), 2, "the copied cell keeps its text: {hits}");
+
+    let after = project.path("table-copy.oword");
+    save(handle, &after, false).expect("save project");
+    let envelope: Value = serde_json::from_slice(&fs::read(&after).expect("read project")).expect("parse project");
+    let blocks = envelope["document"]["blocks"].as_array().expect("blocks");
+    let tables = blocks.iter().filter(|node| node["block"].get("Table").is_some()).collect::<Vec<_>>();
+    assert_eq!(tables.len(), 2);
+    let source_cells = table_cell_children(tables[0]);
+    let copy_cells = table_cell_children(tables[1]);
+    assert_eq!(source_cells.len(), 4, "two rows of two cells");
+    assert_eq!(copy_cells.len(), 4);
+    for children in &copy_cells {
+        for child in children {
+            assert!(
+                !source_cells.iter().flatten().any(|source| source == child),
+                "copied cell {child} must not alias a source id"
+            );
+        }
+    }
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn block_duplicate_rejects_unknown_ids_and_bumps_one_revision() {
+    let created = create(&json!({ "title": "Duplicate errors" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "paragraph.append", "text": "top" }] })).expect("seed paragraph");
+    let seeded = summary(handle).expect("summary");
+    let before = revision_of(&seeded);
+
+    let error = edit(handle, &json!({ "operations": [{ "type": "block.duplicate", "id": "node-999999" }] }))
+        .expect_err("unknown block must fail");
+    assert_eq!(error.code, "object/not-found");
+    let error = edit(handle, &json!({ "operations": [{ "type": "block.duplicate" }] })).expect_err("missing id must fail");
+    assert_eq!(error.code, "session/argument-invalid");
+    let unchanged = summary(handle).expect("summary");
+    assert_eq!(revision_of(&unchanged), before);
+    assert_eq!(unchanged, seeded);
+
+    let hits = find(handle, "top", None).expect("find");
+    let id = hits.as_array().expect("hits")[0]["blockId"].as_str().expect("block id").to_string();
+    let duplicated = edit(handle, &json!({ "operations": [{ "type": "block.duplicate", "id": id }] }))
+        .expect("duplicate a top-level paragraph");
+    assert_eq!(duplicated["results"][0]["type"], json!("block.duplicate"));
+    assert_eq!(duplicated["results"][0]["id"], json!(id));
+    assert!(duplicated["results"][0]["newId"].as_str().unwrap_or_default().starts_with("node-"));
+    assert_eq!(duplicated["results"][0]["index"], json!(1), "the copy follows the source at the top level");
+    assert_eq!(revision_of(&duplicated), before + 1);
+    assert_eq!(summary_text(&duplicated["document"]), "top\ntop");
+    let paragraphs = duplicated["document"]["paragraphs"].as_array().unwrap();
+    assert_eq!(paragraphs[0]["sectionIndex"], json!(-1));
+    assert_eq!(paragraphs[1]["sectionIndex"], json!(-1));
+
+    close(handle).expect("close");
+}
+
+fn address_number(address: &str) -> u64 {
+    address.rsplit('-').next().expect("address suffix").parse().expect("numeric address")
+}
+
+fn section_children(blocks: &[Value], id: u64) -> Vec<u64> {
+    let node = blocks.iter().find(|node| node["id"] == json!(id)).expect("section block");
+    node["block"]["Section"]["children"]
+        .as_array()
+        .expect("section children")
+        .iter()
+        .map(|child| child.as_u64().expect("child id"))
+        .collect()
+}
+
+fn paragraph_text(blocks: &[Value], id: u64) -> String {
+    let node = blocks.iter().find(|node| node["id"] == json!(id)).expect("paragraph block");
+    node["block"]["Paragraph"]["content"][0]["Text"]["text"].as_str().expect("paragraph text").to_string()
+}
+
+fn table_cell_children(node: &Value) -> Vec<Vec<u64>> {
+    let table = &node["block"]["Table"];
+    let mut cells = Vec::new();
+    for band in ["head", "body", "foot"] {
+        let Some(rows) = table.get(band).and_then(Value::as_array)
+        else {
+            continue;
+        };
+        for row in rows {
+            for cell in row["cells"].as_array().expect("cells") {
+                cells.push(
+                    cell["children"]
+                        .as_array()
+                        .expect("cell children")
+                        .iter()
+                        .map(|child| child.as_u64().expect("child id"))
+                        .collect(),
+                );
+            }
+        }
+    }
+    cells
+}
+
+#[test]
 fn create_opens_a_template_and_stats_reports_the_document() {
     let workspace = Workspace::new("stats");
     let template = workspace.markdown(

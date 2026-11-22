@@ -36,6 +36,7 @@
             "code": "Append a fenced code block with this text",
             "codeLang": "Language tag for the code block, such as rust",
             "table": "Append a table from a JSON array of string rows",
+            "duplicateBlock": "Deep-copy a block and its children, inserting the copy right after it by block id such as node-3",
             "author": "Document author",
             "expectedRevision": "Reject the edit unless the document is at this revision",
             "limit": "Maximum number of matches to return",

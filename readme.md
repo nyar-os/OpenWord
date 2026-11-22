@@ -42,6 +42,7 @@ open-word replace report.oword --find "old name" --with "new name" --ignore-case
 open-word template letter.docx --values '{"name":"Ada","amount":42}' --out letter-filled.oword --overwrite
 open-word create --template letter.docx --title "Renewal" --out letter.oword
 open-word edit report.oword --heading "Results" --level 2 --paragraph "Numbers held." --out report.oword --overwrite
+open-word edit report.oword --duplicate-block section-2 --out report.oword --overwrite
 open-word export report.oword --format pdf --out report.pdf --overwrite
 open-word gui
 ```
@@ -52,6 +53,7 @@ import { OpenWord } from '@wae/open-word';
 const word = new OpenWord();
 await word.create({ title: 'Research review' });
 await word.edit([{ type: 'heading.append', level: 1, text: 'Results' }]);
+await word.edit([{ type: 'block.duplicate', id: 'section-1' }]);
 await word.save('report.oword');
 await word.export({ format: 'docx', target: 'report.docx' });
 await word.dispose();
@@ -71,13 +73,21 @@ Editing works on the shared document model: append paragraphs, headings and
 tables, insert a paragraph at any depth-first position, replace text across
 titles, paragraphs, list items and table cells, remove a block with its whole
 subtree, update one paragraph's text by block id or depth-first index, move a
-block (with its subtree) to another depth-first position, set one table cell,
-and insert or delete table rows and columns. Row and column edits keep every row
-on the same grid: inserted cells use `colspan`/`rowspan` 1, an inserted column
-adds one grid column to every row, and deleting the last row or column is
-rejected. Every operation advances exactly one revision, a batch is validated
-before the first mutation, and `expectedRevision` rejects stale writes. `find`
-searches the same text in document order and reports character offsets per
+block (with its subtree) to another depth-first position, duplicate a block
+with its whole subtree as fresh node ids inserted directly after the source,
+set one table cell, and insert or delete table rows and columns. Row and column
+edits keep every row on the same grid: inserted cells use `colspan`/`rowspan`
+1, an inserted column adds one grid column to every row, and deleting the last
+row or column is rejected. `block.duplicate` deep-copies the addressed block
+and everything nested under it, gives every copied block a fresh node id, and
+inserts the copy directly after the source inside the same container
+(section/quote children, list item children or table cell children), or after
+it at the top level when the source has no container. Inline content, styles
+and table structure are copied as-is and asset references stay shared, never
+re-registered. Every operation advances exactly one revision, a batch is
+validated before the first mutation, and `expectedRevision` rejects stale
+writes. `find` searches the same text in document order and reports character
+offsets per
 block. `replace` searches titles, paragraphs, list items and table cells and
 returns the changed block addresses: matching is case-sensitive unless
 `--ignore-case` is given, `--whole-word` requires a non-word character on both

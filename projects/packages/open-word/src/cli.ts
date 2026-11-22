@@ -367,6 +367,7 @@ cli
     .option('--code <text>', 'cli.opt.code')
     .option('--code-lang <lang>', 'cli.opt.codeLang')
     .option('--table <json>', 'cli.opt.table')
+    .option('--duplicate-block <id>', 'cli.opt.duplicateBlock')
     .option('--title <title>', 'cli.opt.title')
     .option('--author <author>', 'cli.opt.author')
     .option('--expected-revision <revision>', 'cli.opt.expectedRevision')
@@ -438,6 +439,10 @@ cli
             }
             operations.push({ type: 'table.append', rows });
         }
+        const duplicateBlock = text(options, 'duplicate-block');
+        if (duplicateBlock !== undefined) {
+            operations.push({ type: 'block.duplicate', id: duplicateBlock });
+        }
         const title = text(options, 'title');
         const author = text(options, 'author');
         if (title !== undefined || author !== undefined) {
@@ -446,7 +451,7 @@ cli
         if (operations.length === 0) {
             ctx.fail('open-word.cli.edit-args', {
                 message:
-                    'pass at least one of `--paragraph`, `--heading`, `--bullet`, `--numbered`, `--quote`, `--code`, `--table`, `--title` or `--author`',
+                    'pass at least one of `--paragraph`, `--heading`, `--bullet`, `--numbered`, `--quote`, `--code`, `--table`, `--duplicate-block`, `--title` or `--author`',
             });
             return 2;
         }

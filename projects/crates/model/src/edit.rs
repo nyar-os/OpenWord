@@ -4,7 +4,7 @@
 //! rejected operation never leaves a half-applied revision. Each applied
 //! operation advances the revision exactly once.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use document_ir::{Block, DocumentGraph, Inline, ListItem, NodeId, TableCell, TableRow};
 use serde_json::{Value, json};
@@ -30,6 +30,7 @@ enum Operation {
     DeleteColumn { table: usize, column: usize },
     UpdateParagraph { target: Target, text: String },
     MoveBlock { id: NodeId, index: usize },
+    DuplicateBlock { id: NodeId },
     TemplateFill { values: Vec<(String, String)> },
 }
 
@@ -183,6 +184,7 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             Ok(Operation::UpdateParagraph { target: paragraph_target(operation)?, text: required_text(operation, "text")? })
         }
         "block.move" => Ok(Operation::MoveBlock { id: parse_block_id(operation)?, index: required_index(operation, "index")? }),
+        "block.duplicate" => Ok(Operation::DuplicateBlock { id: parse_block_id(operation)? }),
         "template.fill" => Ok(Operation::TemplateFill { values: required_values(operation)? }),
         other => Err(ServiceError::new("object/unsupported", format!("edit operation `{other}` is not supported"))),
     }
@@ -416,6 +418,13 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             move_block(graph, id, index)?;
             graph.bump_revision();
             Ok(json!({ "type": "block.move", "id": label, "index": index }))
+        }
+        Operation::DuplicateBlock { id } => {
+            let label = graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id));
+            let new_id = duplicate_block(graph, id)?;
+            graph.bump_revision();
+            let index = document_ir::flat_order(graph).iter().position(|node| *node == new_id).unwrap_or_default();
+            Ok(json!({ "type": "block.duplicate", "id": label, "newId": format!("node-{}", new_id.0), "index": index }))
         }
         Operation::TemplateFill { values } => {
             let replaced = fill_template(graph, &values);
@@ -728,6 +737,109 @@ fn insert_into_container(graph: &mut DocumentGraph, target: NodeId, new_id: Node
                     for cell in &mut row.cells {
                         if let Some(position) = cell.children.iter().position(|child| *child == target) {
                             cell.children.insert(position, new_id);
+                            return true;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Deep-copies one block and everything nested under it, then inserts the copy
+/// directly after the source inside the same container. Every copied block gets
+/// a fresh node id, so the copy never aliases a source node, while inline
+/// content, structure and the authored source spans are kept. A top-level
+/// source is followed at the top level, because it has no container list.
+fn duplicate_block(graph: &mut DocumentGraph, id: NodeId) -> Result<NodeId, ServiceError> {
+    if !graph.blocks.iter().any(|node| node.id == id) {
+        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+    }
+    let new_id = duplicate_subtree(graph, id, &mut HashMap::new());
+    if !insert_after_source(graph, id, new_id) {
+        let position = graph.blocks.iter().position(|node| node.id == id).expect("the source block exists");
+        let copied = graph.blocks.iter().position(|node| node.id == new_id).expect("the copy was just pushed");
+        let node = graph.blocks.remove(copied);
+        graph.blocks.insert(position + 1, node);
+    }
+    Ok(new_id)
+}
+
+/// Copies one node and its children depth-first, recording `source -> copy` in
+/// `ids` so child references can be remapped once the whole subtree exists.
+fn duplicate_subtree(graph: &mut DocumentGraph, id: NodeId, ids: &mut HashMap<NodeId, NodeId>) -> NodeId {
+    let source =
+        graph.blocks.iter().find(|node| node.id == id).map(|node| node.block.clone()).expect("the subtree was resolved");
+    let span = graph.block_span(id);
+    let new_id = graph.push_block_at(source.clone(), span);
+    ids.insert(id, new_id);
+    for child in document_ir::child_ids(&source) {
+        if graph.blocks.iter().any(|node| node.id == child) {
+            duplicate_subtree(graph, child, ids);
+        }
+    }
+    let node = graph.blocks.iter_mut().find(|node| node.id == new_id).expect("the copy was just pushed");
+    remap_copy_children(&mut node.block, ids);
+    new_id
+}
+
+/// Rewrites child references of a copied block to their fresh ids. A reference
+/// without a copy is dropped rather than left pointing into the source subtree.
+fn remap_copy_children(block: &mut Block, ids: &HashMap<NodeId, NodeId>) {
+    match block {
+        Block::Section { children, .. } | Block::Quote { children } => retain_copies(children, ids),
+        Block::List { items, .. } => {
+            for item in items {
+                retain_copies(&mut item.children, ids);
+            }
+        }
+        Block::Table { head, body, foot, .. } => {
+            for row in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()) {
+                for cell in &mut row.cells {
+                    retain_copies(&mut cell.children, ids);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn retain_copies(children: &mut Vec<NodeId>, ids: &HashMap<NodeId, NodeId>) {
+    children.retain_mut(|child| match ids.get(child) {
+        Some(mapped) => {
+            *child = *mapped;
+            true
+        }
+        None => false,
+    });
+}
+
+/// Inserts `new_id` directly after `target` inside the container that owns
+/// `target`, returning `false` when `target` is a top-level block.
+fn insert_after_source(graph: &mut DocumentGraph, target: NodeId, new_id: NodeId) -> bool {
+    for node in &mut graph.blocks {
+        match &mut node.block {
+            Block::Section { children, .. } | Block::Quote { children } => {
+                if let Some(position) = children.iter().position(|child| *child == target) {
+                    children.insert(position + 1, new_id);
+                    return true;
+                }
+            }
+            Block::List { items, .. } => {
+                for item in items {
+                    if let Some(position) = item.children.iter().position(|child| *child == target) {
+                        item.children.insert(position + 1, new_id);
+                        return true;
+                    }
+                }
+            }
+            Block::Table { head, body, foot, .. } => {
+                for row in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()) {
+                    for cell in &mut row.cells {
+                        if let Some(position) = cell.children.iter().position(|child| *child == target) {
+                            cell.children.insert(position + 1, new_id);
                             return true;
                         }
                     }

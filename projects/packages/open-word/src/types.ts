@@ -215,6 +215,21 @@ export interface SaveOptions {
 }
 
 /**
+ * Deep-copies one block and everything nested under it.
+ *
+ * Every copied block gets a fresh node id, inline content and structure are kept
+ * verbatim, and the copy is inserted directly after the source inside the same
+ * container (section/quote children, list item children, table cell children, or
+ * the top level when the source is a top-level block). Asset references are
+ * shared, never re-registered.
+ */
+export interface BlockDuplicateOperation {
+    readonly type: 'block.duplicate';
+    /** Source block address: `section-N` or `node-N`. */
+    readonly id: string;
+}
+
+/**
  * One atomic edit. Operations are validated as a whole before the first
  * mutation, so a rejected batch never leaves a half-applied revision.
  */
@@ -242,6 +257,7 @@ export type EditOperation =
     | { readonly type: 'table.deleteColumn'; readonly table: number; readonly column: number }
     | { readonly type: 'paragraph.update'; readonly id?: string; readonly index?: number; readonly text: string }
     | { readonly type: 'block.move'; readonly id: string; readonly index: number }
+    | BlockDuplicateOperation
     | {
           readonly type: 'template.fill';
           readonly values: Readonly<Record<string, string | number | boolean>>;
@@ -268,6 +284,10 @@ export interface EditOperationResult {
     readonly removed?: number;
     /** Address of the block an operation inserted or updated. */
     readonly id?: string;
+    /** Address of the fresh block `block.duplicate` created. */
+    readonly newId?: string;
+    /** Depth-first position the block an operation created now holds. */
+    readonly index?: number;
     /** List items created by `list.append`. */
     readonly items?: number;
     /** Whether the list appended by `list.append` is ordered. */

@@ -1140,6 +1140,60 @@ fn table_set_header_replaces_and_clears_the_header_row() {
 }
 
 #[test]
+fn table_set_cell_span_merges_and_unmerges_one_cell() {
+    let workspace = Workspace::new("cellspan");
+    let created = create(&json!({ "title": "Table" })).expect("create");
+    let handle = handle_of(&created);
+    edit(
+        handle,
+        &json!({ "operations": [{ "type": "table.append", "rows": [["a", "b"], ["1", "2"]] }] }),
+    )
+    .expect("append table");
+
+    let merged = edit(
+        handle,
+        &json!({ "operations": [{ "type": "table.setCellSpan", "table": 0, "row": 1, "column": 0, "colspan": 2, "rowspan": 1 }] }),
+    )
+    .expect("merge body cells");
+    assert_eq!(merged["results"][0]["type"], json!("table.setCellSpan"));
+    assert_eq!(revision_of(&merged), 2);
+
+    let project = workspace.path("span.oword");
+    save(handle, &project, false).expect("save project");
+    let envelope: Value = serde_json::from_slice(&fs::read(&project).expect("read project")).expect("parse project");
+    let table = envelope["document"]["blocks"]
+        .as_array()
+        .expect("blocks")
+        .iter()
+        .find(|node| node["block"].get("Table").is_some())
+        .expect("table block")["block"]["Table"]
+        .clone();
+    assert_eq!(table["body"][0]["cells"][0]["colspan"], json!(2));
+    assert_eq!(table["body"][0]["cells"][0]["rowspan"], json!(1));
+
+    let unmerged = edit(
+        handle,
+        &json!({ "operations": [{ "type": "table.setCellSpan", "table": 0, "row": 1, "column": 0, "colspan": 1, "rowspan": 1 }] }),
+    )
+    .expect("unmerge the cell");
+    assert_eq!(revision_of(&unmerged), 3);
+
+    let before = summary(handle).expect("summary");
+    for operation in [
+        json!({ "type": "table.setCellSpan", "table": 0, "row": 9, "column": 0, "colspan": 2, "rowspan": 1 }),
+        json!({ "type": "table.setCellSpan", "table": 0, "row": 0, "column": 9, "colspan": 2, "rowspan": 1 }),
+        json!({ "type": "table.setCellSpan", "table": 0, "row": 0, "column": 0, "colspan": 0, "rowspan": 1 }),
+        json!({ "type": "table.setCellSpan", "table": 0, "row": 0, "column": 0, "colspan": 1, "rowspan": 0 }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid span must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    assert_eq!(summary(handle).expect("summary"), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn code_set_language_retags_a_block_and_can_clear_it() {
     let workspace = Workspace::new("codelanguage");
     let created = create(&json!({ "title": "Code" })).expect("create");

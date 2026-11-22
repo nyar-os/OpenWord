@@ -27,6 +27,7 @@ enum Operation {
     Table(Vec<Vec<String>>),
     SetCaption { table: usize, caption: Option<String> },
     SetTableHeader { table: usize, cells: Vec<String> },
+    SetCellSpan { table: usize, row: usize, column: usize, colspan: u32, rowspan: u32 },
     Metadata { title: Option<String>, author: Option<String> },
     ReplaceText(replace::Request),
     RemoveBlock { id: NodeId },
@@ -176,6 +177,23 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             table: required_index(operation, "table")?,
             cells: required_strings(operation, "cells")?,
         }),
+        "table.setCellSpan" => {
+            let colspan = required_index(operation, "colspan")?;
+            let rowspan = required_index(operation, "rowspan")?;
+            if colspan == 0 || colspan > u16::MAX as usize {
+                return Err(crate::invalid("`colspan` must be between 1 and 65535"));
+            }
+            if rowspan == 0 || rowspan > u16::MAX as usize {
+                return Err(crate::invalid("`rowspan` must be between 1 and 65535"));
+            }
+            Ok(Operation::SetCellSpan {
+                table: required_index(operation, "table")?,
+                row: required_index(operation, "row")?,
+                column: required_index(operation, "column")?,
+                colspan: colspan as u32,
+                rowspan: rowspan as u32,
+            })
+        }
         "table.setCaption" => {
             let caption = optional_text(operation, "caption")?.map(|caption| caption.trim().to_owned());
             if caption.as_deref() == Some("") {
@@ -515,6 +533,18 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             let id = insert_paragraph(graph, index, text)?;
             graph.bump_revision();
             Ok(json!({ "type": "paragraph.insert", "id": format!("node-{}", id.0) }))
+        }
+        Operation::SetCellSpan { table, row, column, colspan, rowspan } => {
+            set_cell_span(graph, table, row, column, colspan, rowspan)?;
+            graph.bump_revision();
+            Ok(json!({
+                "type": "table.setCellSpan",
+                "table": table,
+                "row": row,
+                "column": column,
+                "colspan": colspan,
+                "rowspan": rowspan,
+            }))
         }
         Operation::SetCell { table, row, column, text } => {
             set_cell(graph, table, row, column, text)?;
@@ -999,6 +1029,42 @@ fn set_cell(graph: &mut DocumentGraph, table: usize, row: usize, column: usize, 
     for child in old_children {
         sweep(graph, child);
     }
+    Ok(())
+}
+
+/// Sets how many grid columns and rows one cell covers.
+///
+/// The cell is addressed by its top-left grid position. Spans keep their
+/// content and children; setting a cell back to `1x1` unmerges it.
+fn set_cell_span(
+    graph: &mut DocumentGraph,
+    table: usize,
+    row: usize,
+    column: usize,
+    colspan: u32,
+    rowspan: u32,
+) -> Result<(), ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let (total_rows, columns) = table_shape(graph, table_id);
+    if row >= total_rows {
+        return Err(crate::invalid(format!("`row` {row} is outside the table's {total_rows} rows")));
+    }
+    if column >= columns {
+        return Err(crate::invalid(format!("`column` {column} is outside the table's {columns} grid columns")));
+    }
+    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+    let Block::Table { head, body, foot, .. } = &mut node.block
+    else {
+        unreachable!("the id was filtered to a table block");
+    };
+    let target = row_at(head, body, foot, row).expect("the row was validated");
+    let index = column_index(target, column);
+    let Some(cell) = target.cells.get_mut(index)
+    else {
+        return Err(crate::invalid(format!("`column` {column} is outside row {row}'s grid width")));
+    };
+    cell.colspan = colspan;
+    cell.rowspan = rowspan;
     Ok(())
 }
 

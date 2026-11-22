@@ -320,6 +320,20 @@ export type EditOperation =
       }
     | { readonly type: 'block.remove'; readonly id: string }
     | { readonly type: 'paragraph.insert'; readonly index: number; readonly text: string }
+    | {
+          /** Sets how many grid columns and rows one cell covers; `1x1` unmerges it. */
+          readonly type: 'table.setCellSpan';
+          /** Zero-based table index in document order. */
+          readonly table: number;
+          /** Row index across head, body and foot rows. */
+          readonly row: number;
+          /** Grid column of the cell's top-left corner. */
+          readonly column: number;
+          /** Grid columns covered, at least 1. */
+          readonly colspan: number;
+          /** Rows covered, at least 1. */
+          readonly rowspan: number;
+      }
     | { readonly type: 'table.setCell'; readonly table: number; readonly row: number; readonly column: number; readonly text: string }
     | { readonly type: 'table.insertRow'; readonly table: number; readonly row: number; readonly cells?: readonly string[] }
     | { readonly type: 'table.deleteRow'; readonly table: number; readonly row: number }

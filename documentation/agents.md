@@ -134,6 +134,7 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `paragraph.update` | `id` or `index`, `text` (target must be a paragraph) |
 | `block.move` | `id`, `index` |
 | `block.duplicate` | `id`; returns `newId` and the copy's depth-first `index` |
+| `table.setCellSpan` | `table`, `row`, `column` (top-left grid column), `colspan`, `rowspan` (1–65535); keeps the content, `1x1` unmerges |
 | `table.setCell` | `table`, `row`, `column`, `text` |
 | `table.insertRow` | `table`, `row`, `cells?` (must match the grid width) |
 | `table.deleteRow` | `table`, `row` (last row rejected) |

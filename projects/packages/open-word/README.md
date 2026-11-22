@@ -10,7 +10,7 @@ A session-oriented TypeScript API and the `open-word` CLI for creating, revising
 
 - **Session:** `capabilities()`, `create({ title, template, author })`, `open({ path, intent })`, `save(target, { overwrite })`, `dispose()`
 - **Read:** `stats()`, `outline()`, `find(query, { limit })`
-- **Edit:** `edit(operations, { expectedRevision })`, `replace(find, replacement, { caseSensitive, wholeWord, limit, expectedRevision })`, `undo({ steps })`, `redo({ steps })`, `merge(path, { mode: 'append' })`
+- **Edit:** `edit(operations, { expectedRevision })`, `replace(find, replacement, { caseSensitive, wholeWord, regex, limit, expectedRevision })`, `undo({ steps })`, `redo({ steps })`, `merge(path, { mode: 'append' })`
 - **Templates:** `template` on `create()` starts from an existing document, and `edit([{ type: 'template.fill', values }])` substitutes `{{key}}` placeholders.
 - **Review and delivery:** `inspect({ path }, { checks })`, `export({ format, target, overwrite })`
 - **CLI:** `open-word capabilities | create | open | save | inspect | find | stats | outline | edit | replace | template | undo | redo | merge | export | gui`

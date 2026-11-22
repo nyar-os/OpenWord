@@ -236,12 +236,14 @@ pub fn find(handle: u64, query: &str, limit: Option<u32>) -> Result<Value, Servi
 
 /// Replaces text in one document and reports the affected blocks.
 ///
-/// The request is `{ find, replace, caseSensitive?, wholeWord?, limit?,
+/// The request is `{ find, replace, caseSensitive?, wholeWord?, regex?, limit?,
 /// expectedRevision? }`. `find` must be non-empty, `replace` may be empty to
 /// delete matches, matching is case-sensitive by default, `wholeWord` defaults
-/// to `false`, and `limit` caps the total number of replacements. Matching
-/// covers the same text `find` searches: section titles, paragraphs, list items,
-/// table cells and authored inline display text.
+/// to `false`, and `limit` caps the total number of replacements. With `regex`
+/// set, `find` is a pattern whose capture groups are referenced as `$1` or
+/// `$name` in `replace`; `wholeWord` is refused because the boundary belongs in
+/// the pattern. Matching covers the same text `find` searches: section titles,
+/// paragraphs, list items, table cells and authored inline display text.
 ///
 /// A committing pass advances the revision once and records the prior graph for
 /// undo. A pass with no match changes nothing, so its revision and history stay

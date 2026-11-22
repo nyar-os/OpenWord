@@ -247,7 +247,18 @@ export type EditOperation =
     | { readonly type: 'code.append'; readonly text: string; readonly language?: string }
     | { readonly type: 'table.append'; readonly rows: readonly (readonly string[])[] }
     | { readonly type: 'metadata.set'; readonly title?: string; readonly author?: string }
-    | { readonly type: 'document.replaceText'; readonly find: string; readonly replace: string; readonly limit?: number }
+    | {
+          readonly type: 'document.replaceText';
+          readonly find: string;
+          readonly replace: string;
+          /** Match case exactly. Defaults to `true`. */
+          readonly caseSensitive?: boolean;
+          /** Replace only matches with no word character on either side. Defaults to `false`. */
+          readonly wholeWord?: boolean;
+          /** Treat `find` as a regular expression; `$1` and `$name` expand capture groups. */
+          readonly regex?: boolean;
+          readonly limit?: number;
+      }
     | { readonly type: 'block.remove'; readonly id: string }
     | { readonly type: 'paragraph.insert'; readonly index: number; readonly text: string }
     | { readonly type: 'table.setCell'; readonly table: number; readonly row: number; readonly column: number; readonly text: string }
@@ -339,6 +350,11 @@ export interface ReplaceOptions {
     readonly caseSensitive?: boolean;
     /** Replace only matches with no word character on either side. Defaults to `false`. */
     readonly wholeWord?: boolean;
+    /**
+     * Treat `find` as a regular expression. Capture groups are expanded in the
+     * replacement as `$1` or `$name`; `wholeWord` cannot be combined with it.
+     */
+    readonly regex?: boolean;
     /** Maximum number of replacements across the whole document. */
     readonly limit?: number;
     /** Reject the pass when the document is not at this revision. */

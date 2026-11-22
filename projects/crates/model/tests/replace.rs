@@ -145,6 +145,35 @@ fn case_insensitive_matching_handles_non_ascii_case() {
 }
 
 #[test]
+fn regular_expressions_replace_capture_groups_and_follow_case_sensitivity() {
+    let created = create(&json!({ "title": "Regex" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "paragraph.append", "text": "Order 12, order 34." }] }))
+        .expect("append paragraph");
+
+    let report = replace(handle, &json!({ "find": "(?i)order\\s+(\\d+)", "replace": "item $1", "regex": true }))
+        .expect("regex replace");
+    assert_eq!(report["replaced"], json!(2));
+    assert_eq!(report["affected"].as_array().expect("affected").len(), 1);
+    assert_eq!(summary_text(&report["document"]), "item 12, item 34.");
+
+    undo(handle, None).expect("restore");
+    let insensitive =
+        replace(handle, &json!({ "find": "ORDER", "replace": "line", "regex": true, "caseSensitive": false }))
+            .expect("case-insensitive pattern");
+    assert_eq!(insensitive["replaced"], json!(2));
+    assert_eq!(summary_text(&insensitive["document"]), "line 12, line 34.");
+
+    undo(handle, None).expect("restore again");
+    let limited = replace(handle, &json!({ "find": "\\d+", "replace": "n", "regex": true, "limit": 1 }))
+        .expect("limited pattern");
+    assert_eq!(limited["replaced"], json!(1));
+    assert_eq!(summary_text(&limited["document"]), "Order n, order 34.");
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn invalid_requests_and_stale_revisions_leave_the_document_untouched() {
     let workspace = Workspace::new("bounds");
     let opened = open(&workspace.markdown("report.md", "Alpha alpha\n")).expect("open");
@@ -163,6 +192,9 @@ fn invalid_requests_and_stale_revisions_leave_the_document_untouched() {
         json!({ "find": "a", "replace": 3 }),
         json!({ "find": "a", "replace": "x", "caseSensitive": "yes" }),
         json!({ "find": "a", "replace": "x", "wholeWord": 1 }),
+        json!({ "find": "a", "replace": "x", "regex": "yes" }),
+        json!({ "find": "(", "replace": "x", "regex": true }),
+        json!({ "find": "a", "replace": "x", "regex": true, "wholeWord": true }),
         json!({ "find": "a", "replace": "x", "limit": 0 }),
         json!({ "find": "a", "replace": "x", "limit": "2" }),
         json!({ "find": "a", "replace": "x", "expectedRevision": -1 }),

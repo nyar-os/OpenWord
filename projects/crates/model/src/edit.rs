@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use document_ir::{Block, DocumentGraph, Inline, ListItem, NodeId, TableCell, TableRow};
 use serde_json::{Value, json};
 
-use crate::ServiceError;
+use crate::{ServiceError, replace};
 
 #[derive(Clone)]
 enum Operation {
@@ -20,7 +20,7 @@ enum Operation {
     Code { text: String, language: Option<String> },
     Table(Vec<Vec<String>>),
     Metadata { title: Option<String>, author: Option<String> },
-    ReplaceText { find: String, replace: String, limit: Option<usize> },
+    ReplaceText(replace::Request),
     RemoveBlock { id: NodeId },
     InsertParagraph { index: usize, text: String },
     SetCell { table: usize, row: usize, column: usize, text: String },
@@ -136,17 +136,7 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             }
             Ok(Operation::Metadata { title, author })
         }
-        "document.replaceText" => {
-            let find = required_text(operation, "find")?;
-            if find.is_empty() {
-                return Err(crate::invalid("`find` must be a non-empty string"));
-            }
-            Ok(Operation::ReplaceText {
-                find,
-                replace: required_text(operation, "replace")?,
-                limit: optional_index(operation, "limit")?,
-            })
-        }
+        "document.replaceText" => Ok(Operation::ReplaceText(replace::Request::parse(operation)?)),
         "block.remove" => {
             let raw = required_text(operation, "id")?;
             let id = document_ir::parse_block_address(&raw)
@@ -367,8 +357,8 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             graph.bump_revision();
             Ok(json!({ "type": "metadata.set" }))
         }
-        Operation::ReplaceText { find, replace, limit } => {
-            let replaced = replace_text(graph, &find, &replace, limit);
+        Operation::ReplaceText(request) => {
+            let replaced = replace::apply(graph, &request).replaced;
             graph.bump_revision();
             Ok(json!({ "type": "document.replaceText", "replaced": replaced }))
         }
@@ -495,82 +485,6 @@ fn append_block(graph: &mut DocumentGraph, block: Block) {
         }
         None => graph.bump_revision(),
     }
-}
-
-/// Replaces plain-text occurrences across titles, paragraphs and list items in
-/// document order, honouring an optional total limit.
-fn replace_text(graph: &mut DocumentGraph, find: &str, replace: &str, limit: Option<usize>) -> usize {
-    let mut budget = limit.unwrap_or(usize::MAX);
-    let mut replaced = 0;
-    for id in document_ir::flat_order(graph) {
-        if budget == 0 {
-            break;
-        }
-        let Some(node) = graph.blocks.iter_mut().find(|node| node.id == id)
-        else {
-            continue;
-        };
-        replaced += match &mut node.block {
-            Block::Section { title, .. } => replace_in_inlines(title, find, replace, &mut budget),
-            Block::Paragraph { content } => replace_in_inlines(content, find, replace, &mut budget),
-            Block::List { items, .. } => {
-                items.iter_mut().map(|item| replace_in_inlines(&mut item.content, find, replace, &mut budget)).sum()
-            }
-            _ => 0,
-        };
-    }
-    replaced
-}
-
-fn replace_in_inlines(inlines: &mut [Inline], find: &str, replace: &str, budget: &mut usize) -> usize {
-    let mut replaced = 0;
-    for inline in inlines {
-        match inline {
-            Inline::Text { text } => {
-                let (rewritten, count) = replace_in_text(text, find, replace, budget);
-                if count > 0 {
-                    *text = rewritten;
-                }
-                replaced += count;
-            }
-            Inline::Styled { children, .. } | Inline::Attributed { children, .. } => {
-                replaced += replace_in_inlines(children, find, replace, budget);
-            }
-            Inline::Link { display, .. } => replaced += replace_in_inlines(display, find, replace, budget),
-            Inline::Image { alt, .. } => replaced += replace_in_inlines(alt, find, replace, budget),
-            Inline::Note { display: Some(display), .. } | Inline::Citation { display: Some(display), .. } => {
-                replaced += replace_in_inlines(display, find, replace, budget);
-            }
-            _ => {}
-        }
-    }
-    replaced
-}
-
-/// Replaces whole matches inside one text run. `match_indices` yields byte
-/// offsets on character boundaries, so multi-byte text never splits a scalar.
-fn replace_in_text(text: &str, find: &str, replace: &str, budget: &mut usize) -> (String, usize) {
-    if *budget == 0 {
-        return (text.to_string(), 0);
-    }
-    let mut output = String::with_capacity(text.len());
-    let mut last = 0;
-    let mut replaced = 0;
-    for (start, matched) in text.match_indices(find) {
-        if *budget == 0 {
-            break;
-        }
-        output.push_str(&text[last..start]);
-        output.push_str(replace);
-        last = start + matched.len();
-        *budget -= 1;
-        replaced += 1;
-    }
-    if replaced == 0 {
-        return (text.to_string(), 0);
-    }
-    output.push_str(&text[last..]);
-    (output, replaced)
 }
 
 /// Substitutes `{{key}}` placeholders across titles, paragraphs, list items and

@@ -53,7 +53,7 @@ The platform package for your machine is installed automatically as an optional 
 - **One document, four surfaces.** The CLI, TypeScript SDK, agent skill and studio all read and write the same revisioned document.
 - **Real Word workflows.** Create, append headings, paragraphs, lists, quotes, code blocks and tables; insert, update, remove, move and duplicate blocks; edit table cells and rows and columns on a consistent grid.
 - **Template fill without a template language.** `create --template` starts from any document that `open` accepts, and `template.fill` replaces `{{key}}` or `{{ key }}` with strings, numbers or booleans. Unknown placeholders stay verbatim.
-- **Find and replace in place.** Search section titles, paragraphs, list items and table cells, with case-sensitive matching by default, optional whole-word matching and a total replacement limit.
+- **Find and replace in place.** Search section titles, paragraphs, list items and table cells, with case-sensitive matching by default, optional whole-word matching, optional regular-expression patterns with `$1` capture expansion, and a total replacement limit.
 - **Document review, not a score.** `inspect` runs structural checks for sections, tables, links, images, styles and fonts and reports the revision it observed.
 - **Navigation built in.** `outline` returns every heading once, nested by level with stable `section-N` addresses; `stats` reports block, heading, table, word and reading-time counts.
 - **Deliberate delivery.** Export `docx`, `pdf`, `html`, `md`, `txt` or `rtf`; PDF is marked non-editable, and RTF reports `import.rtf.*` / `export.rtf.*` loss codes.

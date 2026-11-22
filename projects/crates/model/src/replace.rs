@@ -1,4 +1,4 @@
-//! Case- and word-aware text replacement.
+//! Case-, word- and pattern-aware text replacement.
 //!
 //! The replacement walks the same text surfaces as [`document_ir::find`] —
 //! section titles, paragraphs, list items, table cell paragraphs and authored
@@ -6,16 +6,20 @@
 //! Matching stays inside one inline run, so styles and links are never split.
 
 use document_ir::{Block, DocumentGraph, Inline};
+use regex::{Regex, RegexBuilder};
 use serde_json::{Value, json};
 
 use crate::ServiceError;
 
 /// Parsed replacement request.
+#[derive(Clone)]
 pub(crate) struct Request {
     pub(crate) find: String,
     pub(crate) replacement: String,
     pub(crate) case_sensitive: bool,
     pub(crate) whole_word: bool,
+    /// Compiled pattern when `regex` was requested; literal matching otherwise.
+    pub(crate) regex: Option<Regex>,
     pub(crate) limit: Option<usize>,
     pub(crate) expected_revision: Option<u64>,
 }
@@ -36,11 +40,29 @@ impl Request {
             Some(_) => return Err(crate::invalid("`replace` must be a string")),
             None => return Err(crate::invalid("`replace` must be a string")),
         };
+        let case_sensitive = optional_bool(request, "caseSensitive")?.unwrap_or(true);
+        let whole_word = optional_bool(request, "wholeWord")?.unwrap_or(false);
+        let pattern = optional_bool(request, "regex")?.unwrap_or(false);
+        if pattern && whole_word {
+            return Err(crate::invalid("`wholeWord` cannot be combined with `regex`; add the boundary to the pattern"));
+        }
+        let regex = if pattern {
+            Some(
+                RegexBuilder::new(&find)
+                    .case_insensitive(!case_sensitive)
+                    .build()
+                    .map_err(|error| crate::invalid(format!("`find` is not a valid regular expression: {error}")))?,
+            )
+        }
+        else {
+            None
+        };
         Ok(Self {
             find,
             replacement,
-            case_sensitive: optional_bool(request, "caseSensitive")?.unwrap_or(true),
-            whole_word: optional_bool(request, "wholeWord")?.unwrap_or(false),
+            case_sensitive,
+            whole_word,
+            regex,
             limit: optional_limit(request)?,
             expected_revision: optional_revision(request)?,
         })
@@ -55,7 +77,12 @@ pub(crate) struct Outcome {
 
 /// Rewrites every match in document order, honouring the optional total limit.
 pub(crate) fn apply(graph: &mut DocumentGraph, request: &Request) -> Outcome {
-    let matcher = Matcher { find: &request.find, case_sensitive: request.case_sensitive, whole_word: request.whole_word };
+    let matcher = Matcher {
+        find: &request.find,
+        case_sensitive: request.case_sensitive,
+        whole_word: request.whole_word,
+        regex: request.regex.as_ref(),
+    };
     let mut budget = request.limit.unwrap_or(usize::MAX);
     let mut replaced = 0;
     let mut affected = Vec::new();
@@ -93,6 +120,7 @@ struct Matcher<'a> {
     find: &'a str,
     case_sensitive: bool,
     whole_word: bool,
+    regex: Option<&'a Regex>,
 }
 
 impl Matcher<'_> {
@@ -160,6 +188,28 @@ fn replace_in_inlines(inlines: &mut [Inline], matcher: &Matcher<'_>, replacement
 fn rewrite(text: &mut String, matcher: &Matcher<'_>, replacement: &str, budget: &mut usize) -> usize {
     if *budget == 0 {
         return 0;
+    }
+    if let Some(regex) = matcher.regex {
+        let mut output = String::with_capacity(text.len());
+        let mut last = 0;
+        let mut replaced = 0;
+        for capture in regex.captures_iter(text) {
+            if replaced >= *budget {
+                break;
+            }
+            let whole = capture.get(0).expect("group 0 always matches");
+            output.push_str(&text[last..whole.start()]);
+            capture.expand(replacement, &mut output);
+            last = whole.end();
+            replaced += 1;
+        }
+        if replaced == 0 {
+            return 0;
+        }
+        output.push_str(&text[last..]);
+        *text = output;
+        *budget -= replaced;
+        return replaced;
     }
     let mut output = String::with_capacity(text.len());
     let mut last = 0;

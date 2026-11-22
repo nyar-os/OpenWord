@@ -18,6 +18,7 @@ repository = "https://github.com/nyar-os/OpenWord"
 wae = { git = "https://github.com/doki-land/wae-framework.git", rev = "f92f818fde7174154d77a87b55a5e44b367034c9", default-features = false, features = ["webview"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+regex = "1"
 # Document engine primitives. The revision is pinned so local builds and CI
 # resolve the same semantic IR and format adapters.
 document-ir = { git = "https://github.com/oovm/rust-boost", rev = "ad76d3060dc8c0e219ba1016f88bf5ab905d48d9" }

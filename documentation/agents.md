@@ -77,7 +77,7 @@ Exit codes: `0` success, `1` a failed inspection (`passed: false`) or an action 
 | `code.append` | `text` (non-empty), `language?` |
 | `table.append` | `rows: string[][]` (at least one row and cell) |
 | `metadata.set` | at least one of `title`, `author` |
-| `document.replaceText` | `find` (non-empty), `replace`, `limit?` |
+| `document.replaceText` | `find` (non-empty), `replace`, `caseSensitive?`, `wholeWord?`, `regex?`, `limit?` |
 | `block.remove` | `id` (`section-N` or `node-N`) |
 | `paragraph.insert` | `index`, `text` |
 | `paragraph.update` | `id` or `index`, `text` (target must be a paragraph) |
@@ -93,6 +93,8 @@ Exit codes: `0` success, `1` a failed inspection (`passed: false`) or an action 
 `block.duplicate` deep-copies the addressed block and its whole subtree with fresh node ids, then inserts the copy directly after the source in the same container (or at the top level when the source has no container). Inline content, styles and table structure are copied; asset references stay shared. `table.*` indices are zero-based: `table` counts document tables, `row` counts head, body and foot rows in order, `column` is a grid column. Inserted cells use `colspan`/`rowspan` 1, and an inserted column adds one grid column to every row.
 
 `template.fill` replaces `{{key}}` and `{{ key }}` in titles, paragraphs, list items and table cells. Unknown placeholders stay verbatim. One fill batch advances the revision once.
+
+`document.replaceText` matches inside one inline run, so styles and links never split. With `regex: true`, `find` is a Rust regular expression and `replace` expands `$1`/`$name` capture groups; `caseSensitive: false` compiles it with the case-insensitive flag, and `wholeWord` is rejected because boundaries belong in the pattern. `replace()` on the session accepts the same options.
 
 ## Key types and files
 

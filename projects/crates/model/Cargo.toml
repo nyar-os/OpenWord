@@ -13,5 +13,6 @@ boost-fs = { workspace = true }
 document-formats = { workspace = true }
 document-ir = { workspace = true }
 document-session = { workspace = true }
+regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -45,6 +45,7 @@
             "with": "Replacement text",
             "ignoreCase": "Match text without regard to case",
             "wholeWord": "Replace only matches with no word character on either side",
+            "regex": "Treat --find as a regular expression and expand $1 or $name in --with",
             "values": "JSON object of placeholder values, such as {\"name\":\"Ada\"}"
         }
     }

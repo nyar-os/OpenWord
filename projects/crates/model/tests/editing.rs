@@ -126,6 +126,68 @@ fn replace_text_counts_titles_paragraphs_and_table_cells() {
 }
 
 #[test]
+fn replace_text_accepts_regular_expressions_and_capture_groups() {
+    let created = create(&json!({ "title": "Pattern" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "paragraph.append", "text": "Order 12, order 34 and 56." }] }))
+        .expect("append paragraph");
+
+    let rewritten = edit(
+        handle,
+        &json!({ "operations": [{
+            "type": "document.replaceText",
+            "find": "(?i)order\\s+(\\d+)",
+            "replace": "item $1",
+            "regex": true,
+        }] }),
+    )
+    .expect("regex replace");
+    assert_eq!(rewritten["results"][0]["replaced"], json!(2));
+    assert_eq!(summary_text(&rewritten["document"]), "item 12, item 34 and 56.");
+
+    let insensitive = edit(
+        handle,
+        &json!({ "operations": [{
+            "type": "document.replaceText",
+            "find": "ITEM",
+            "replace": "line",
+            "caseSensitive": false,
+        }] }),
+    )
+    .expect("case-insensitive literal replace");
+    assert_eq!(insensitive["results"][0]["replaced"], json!(2));
+    assert_eq!(summary_text(&insensitive["document"]), "line 12, line 34 and 56.");
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn replace_text_rejects_invalid_patterns_and_conflicting_options() {
+    let created = create(&json!({ "title": "Pattern errors" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "paragraph.append", "text": "alpha" }] })).expect("append");
+    let before = summary(handle).expect("summary");
+
+    for request in [
+        json!({ "operations": [{ "type": "document.replaceText", "find": "(", "replace": "x", "regex": true }] }),
+        json!({ "operations": [{
+            "type": "document.replaceText",
+            "find": "a",
+            "replace": "x",
+            "regex": true,
+            "wholeWord": true,
+        }] }),
+        json!({ "operations": [{ "type": "document.replaceText", "find": "a", "replace": "x", "regex": "yes" }] }),
+    ] {
+        let error = edit(handle, &request).expect_err("invalid pattern request");
+        assert_eq!(error.code, "session/argument-invalid", "{request}");
+        assert_eq!(summary(handle).expect("summary"), before);
+    }
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn removing_a_section_deletes_its_subtree() {
     let created = create(&json!({ "title": "Cascade" })).expect("create");
     let handle = handle_of(&created);

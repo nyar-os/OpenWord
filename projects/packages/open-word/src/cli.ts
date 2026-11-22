@@ -484,6 +484,7 @@ cli
     .option('--with <text>', 'cli.opt.with')
     .option('--ignore-case', 'cli.opt.ignoreCase')
     .option('--whole-word', 'cli.opt.wholeWord')
+    .option('--regex', 'cli.opt.regex')
     .option('--out <file>', 'cli.opt.out')
     .option('--overwrite', 'cli.opt.overwrite')
     .actionCtx(async (options, _args, ctx) => {
@@ -503,6 +504,7 @@ cli
             const report = await word.replace(find, replacement, {
                 caseSensitive: !flag(options, 'ignore-case'),
                 wholeWord: flag(options, 'whole-word'),
+                regex: flag(options, 'regex'),
             });
             const replaced = report.replaced;
             const out = text(options, 'out');

@@ -359,6 +359,7 @@ cli
     .command('edit', 'cli.cmd.edit')
     .option('--paragraph <text>', 'cli.opt.paragraph')
     .option('--heading <text>', 'cli.opt.heading')
+    .option('--heading-id <id>', 'cli.opt.headingId')
     .option('--level <level>', 'cli.opt.level')
     .option('--bullet <text>...', 'cli.opt.bullet')
     .option('--numbered <text>...', 'cli.opt.numbered')
@@ -395,6 +396,20 @@ cli
                 return 2;
             }
             operations.push({ type: 'heading.append', level, text: heading });
+        }
+        const headingId = text(options, 'heading-id');
+        if (headingId !== undefined) {
+            const levelText = text(options, 'level');
+            if (levelText === undefined) {
+                ctx.fail('open-word.cli.edit-level', { message: '`--heading-id` requires `--level <1..6>`' });
+                return 2;
+            }
+            const level = parseInteger(levelText);
+            if (level === undefined || level < 1 || level > 6) {
+                ctx.fail('open-word.cli.edit-level', { message: '`--level <level>` must be between 1 and 6' });
+                return 2;
+            }
+            operations.push({ type: 'heading.setLevel', id: headingId, level });
         }
         const bullets = texts(options, 'bullet');
         if (bullets.length > 0) {
@@ -460,7 +475,7 @@ cli
         if (operations.length === 0) {
             ctx.fail('open-word.cli.edit-args', {
                 message:
-                    'pass at least one of `--paragraph`, `--heading`, `--bullet`, `--numbered`, `--quote`, `--code`, `--table`, `--duplicate-block`, `--title` or `--author`',
+                    'pass at least one of `--paragraph`, `--heading`, `--heading-id`, `--bullet`, `--numbered`, `--quote`, `--code`, `--table`, `--duplicate-block`, `--title` or `--author`',
             });
             return 2;
         }

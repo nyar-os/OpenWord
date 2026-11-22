@@ -237,6 +237,14 @@ export type EditOperation =
     | { readonly type: 'paragraph.append'; readonly text: string }
     | { readonly type: 'heading.append'; readonly level: number; readonly text: string }
     | {
+          /** Changes the level of an existing heading without moving or retitling it. */
+          readonly type: 'heading.setLevel';
+          /** Heading address such as `section-3`. */
+          readonly id: string;
+          /** New level, `1..6`. */
+          readonly level: number;
+      }
+    | {
           readonly type: 'list.append';
           readonly ordered?: boolean;
           readonly items: readonly string[];
@@ -329,6 +337,8 @@ export interface EditOperationResult {
     readonly column?: number;
     /** Caption set or cleared by `table.setCaption`; `null` when cleared. */
     readonly caption?: string | null;
+    /** Level applied by `heading.setLevel`. */
+    readonly level?: number;
 }
 
 /** Result of one edit batch. */

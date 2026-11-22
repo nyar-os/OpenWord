@@ -43,7 +43,7 @@ Binary: `open-word` (`dist/cli.js`). Global flags: `--json` (machine envelope) a
 | `find` | `<file> <query>` | `--limit <count>` |
 | `stats` | `<file>` | — |
 | `outline` | `<file>` | — |
-| `edit` | `<file>` | `--paragraph`, `--heading` + `--level`, repeatable `--bullet`, repeatable `--numbered` + `--numbered-start`, `--quote`, `--code` + `--code-lang`, `--table <json>`, `--duplicate-block <id>`, `--title`, `--author`, `--expected-revision`, `--out`, `--overwrite` |
+| `edit` | `<file>` | `--paragraph`, `--heading` + `--level`, `--heading-id <section-N>` + `--level`, repeatable `--bullet`, repeatable `--numbered` + `--numbered-start`, `--quote`, `--code` + `--code-lang`, `--table <json>`, `--duplicate-block <id>`, `--title`, `--author`, `--expected-revision`, `--out`, `--overwrite` |
 | `replace` | `<file>` | `--find`, `--with`, `--ignore-case`, `--whole-word`, `--out`, `--overwrite` |
 | `template` | `<file>` | `--values <json>` (required), `--out <file>` (required), `--overwrite` |
 | `undo` / `redo` | `<file>` | `--steps <count>` |
@@ -72,6 +72,7 @@ Exit codes: `0` success, `1` a failed inspection (`passed: false`) or an action 
 | --- | --- |
 | `paragraph.append` | `text` |
 | `heading.append` | `level` 1–6, `text` |
+| `heading.setLevel` | `id` (`section-N`), `level` 1–6; changes only the level, keeping the title and children |
 | `list.append` | `items: string[]`, `ordered?`, `start?` (ordered only) |
 | `taskList.append` | `items: (string \| { text, checked? })[]`; exports keep `[ ]`/`[x]` |
 | `quote.append` | `text` (non-empty) |

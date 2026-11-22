@@ -28,6 +28,7 @@
             "format": "Export target: docx, dotx, pdf, html, md, txt or rtf",
             "paragraph": "Append a paragraph with this text",
             "heading": "Append a section heading with this text",
+            "headingId": "Re-level an existing heading by address, such as section-3",
             "level": "Heading level between 1 and 6",
             "bullet": "Append an unordered list item (repeat the option to add more)",
             "numbered": "Append an ordered list item (repeat the option to add more)",

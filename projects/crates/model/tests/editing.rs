@@ -6,7 +6,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use open_word_document::{close, create, edit, export, find, open, save, stats, summary};
+use open_word_document::{close, create, edit, export, find, open, outline, save, stats, summary};
 use serde_json::{Value, json};
 
 const FIXTURE: &str = "# Overview
@@ -73,6 +73,20 @@ fn revision_of(value: &Value) -> u64 {
     value["revision"].as_u64().expect("a revision")
 }
 
+fn find_heading(items: &[Value], title: &str) -> Option<(String, u64)> {
+    for item in items {
+        if item["title"].as_str() == Some(title) {
+            return Some((item["id"].as_str()?.to_owned(), item["level"].as_u64()?));
+        }
+        if let Some(children) = item["children"].as_array()
+            && let Some(found) = find_heading(children, title)
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
 fn assert_exists(path: &Path) {
     assert!(path.is_file(), "{} should exist", path.display());
 }
@@ -123,6 +137,52 @@ fn replace_text_counts_titles_paragraphs_and_table_cells() {
 
     close(unicode_handle).expect("close unicode");
     close(handle).expect("close fixture");
+}
+
+#[test]
+fn set_heading_level_relevels_only_the_addressed_section() {
+    let workspace = Workspace::new("heading-level");
+    let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");
+    let handle = handle_of(&opened);
+
+    let before = outline(handle).expect("outline");
+    let items = before["items"].as_array().expect("items");
+    let (details_id, details_level) = find_heading(items, "Details").expect("Details heading");
+    assert_eq!(details_level, 2);
+    let (overview_id, _) = find_heading(items, "Overview").expect("Overview heading");
+
+    let result =
+        edit(handle, &json!({ "operations": [{ "type": "heading.setLevel", "id": details_id, "level": 3 }] }))
+            .expect("set heading level");
+    assert_eq!(result["results"][0], json!({ "type": "heading.setLevel", "id": details_id, "level": 3 }));
+    assert_eq!(revision_of(&result), 1);
+    assert_eq!(result["document"]["sections"][1]["title"], json!("Details"));
+
+    let after = outline(handle).expect("outline after");
+    let items = after["items"].as_array().expect("items");
+    assert_eq!(find_heading(items, "Details").expect("Details after").1, 3);
+    assert_eq!(find_heading(items, "Overview").expect("Overview after"), (overview_id.clone(), 1));
+
+    let inserted =
+        edit(handle, &json!({ "operations": [{ "type": "paragraph.insert", "index": 0, "text": "Top" }] }))
+            .expect("insert paragraph");
+    let paragraph_id = inserted["results"][0]["id"].as_str().expect("paragraph id").to_owned();
+    let not_heading =
+        edit(handle, &json!({ "operations": [{ "type": "heading.setLevel", "id": paragraph_id, "level": 2 }] }))
+            .expect_err("a paragraph is not a heading");
+    assert_eq!(not_heading.code, "session/argument-invalid");
+
+    let missing =
+        edit(handle, &json!({ "operations": [{ "type": "heading.setLevel", "id": "section-9999", "level": 2 }] }))
+            .expect_err("missing heading");
+    assert_eq!(missing.code, "object/not-found");
+
+    let out_of_range =
+        edit(handle, &json!({ "operations": [{ "type": "heading.setLevel", "id": overview_id, "level": 7 }] }))
+            .expect_err("level is out of range");
+    assert_eq!(out_of_range.code, "session/argument-invalid");
+
+    close(handle).expect("close");
 }
 
 #[test]

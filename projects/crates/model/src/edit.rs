@@ -15,6 +15,7 @@ use crate::{ServiceError, replace};
 enum Operation {
     Paragraph(String),
     Heading { level: u8, text: String },
+    HeadingLevel { section: NodeId, level: u8 },
     List { ordered: bool, items: Vec<String>, start: Option<u32> },
     TaskList(Vec<(String, bool)>),
     Quote(String),
@@ -107,6 +108,16 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
                 return Err(crate::invalid("`level` must be between 1 and 6"));
             }
             Ok(Operation::Heading { level: level as u8, text: required_text(operation, "text")? })
+        }
+        "heading.setLevel" => {
+            let level = operation
+                .get("level")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| crate::invalid("`heading.setLevel` needs a numeric `level`"))?;
+            if !(1..=6).contains(&level) {
+                return Err(crate::invalid("`level` must be between 1 and 6"));
+            }
+            Ok(Operation::HeadingLevel { section: parse_block_id(operation)?, level: level as u8 })
         }
         "list.append" => {
             let ordered = optional_bool(operation, "ordered")?.unwrap_or(false);
@@ -372,6 +383,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
         Operation::Heading { level, text } => {
             append_block(graph, Block::Section { level, title: vec![Inline::Text { text }], children: Vec::new() });
             Ok(json!({ "type": "heading.append" }))
+        }
+        Operation::HeadingLevel { section, level } => {
+            let label = set_heading_level(graph, section, level)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "heading.setLevel", "id": label, "level": level }))
         }
         Operation::List { ordered, items, start } => {
             let count = items.len();
@@ -1132,6 +1148,26 @@ fn update_paragraph(graph: &mut DocumentGraph, target: Target, text: String) -> 
         _ => return Err(crate::invalid("`paragraph.update` needs a paragraph; the addressed block is not one")),
     }
     Ok(label)
+}
+
+/// Changes the level of one existing heading section and returns its address.
+///
+/// Only the level changes; the title, children and authored spans stay as they
+/// are, so a document that addressed a heading can be re-levelled in place.
+fn set_heading_level(graph: &mut DocumentGraph, id: NodeId, level: u8) -> Result<String, ServiceError> {
+    if !graph.blocks.iter().any(|node| node.id == id) {
+        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+    }
+    let label =
+        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+    match &mut node.block {
+        Block::Section { level: current, .. } => {
+            *current = level;
+            Ok(label)
+        }
+        _ => Err(crate::invalid("`heading.setLevel` needs a heading section; the addressed block is not one")),
+    }
 }
 
 fn move_block(graph: &mut DocumentGraph, id: NodeId, index: usize) -> Result<(), ServiceError> {

@@ -1,73 +1,38 @@
 # @wae/open-word
 
-TypeScript authoring surface for OpenWord: one document model behind templates,
-inspection and export. The session entry point is `new OpenWord(options?)`.
+A session-oriented TypeScript API and the `open-word` CLI for creating, revising, inspecting and exporting Word-compatible documents.
 
-## Status
+[Product overview](../../../readme.md) · [Agent reference](../../../documentation/agents.md)
 
-The package exports the document types, the stable error codes, the format
-registry (`.docx`/`.docm`/`.dotx`/`.dotm`/`.doc`/`.rtf`/`.odt`/`.txt`/`.md`/
-`.html`/`.pdf`) and the authoring session `new OpenWord(options?)`.
+## API surface
 
-Engine calls go through the native binding: create and open documents, inspect
-structure, search text with per-block character offsets, apply atomic edits
-(append, insert, replace, remove, paragraph updates, block moves, block
-duplication, table cell and row/column changes), undo/redo those edits, merge
-another document into the open one, save project containers and export
-`docx`/`md`/`html`/`pdf`/`txt`/`rtf`.
+`new OpenWord(options?)` is the entry point. Construction is synchronous and opens no file, window or socket; every operation is async and reports a revision.
+
+- **Session:** `capabilities()`, `create({ title, template, author })`, `open({ path, intent })`, `save(target, { overwrite })`, `dispose()`
+- **Read:** `stats()`, `outline()`, `find(query, { limit })`
+- **Edit:** `edit(operations, { expectedRevision })`, `replace(find, replacement, { caseSensitive, wholeWord, limit, expectedRevision })`, `undo({ steps })`, `redo({ steps })`, `merge(path, { mode: 'append' })`
+- **Templates:** `template` on `create()` starts from an existing document, and `edit([{ type: 'template.fill', values }])` substitutes `{{key}}` placeholders.
+- **Review and delivery:** `inspect({ path }, { checks })`, `export({ format, target, overwrite })`
+- **CLI:** `open-word capabilities | create | open | save | inspect | find | stats | outline | edit | replace | template | undo | redo | merge | export | gui`
+
+An edit batch is validated as a whole before the first mutation, and each applied operation advances the revision once. `expectedRevision` rejects a stale write with `document/revision-conflict`.
+
+## Example
 
 ```ts
-await word.edit([{ type: 'block.duplicate', id: 'section-2' }]);
+import { OpenWord } from '@wae/open-word';
+
+const word = new OpenWord();
+await word.create({ title: 'Account review' });
+await word.edit([{ type: 'heading.append', level: 1, text: 'Summary' }]);
+await word.replace('draft', 'final', { wholeWord: true });
+const { revision } = await word.export({ format: 'docx', target: 'account-review.docx' });
+console.log(`exported revision ${revision}`);
+await word.dispose();
 ```
 
-`block.duplicate` deep-copies the addressed block and its nested blocks with
-fresh node ids, keeps inline content, styles and table structure, and inserts
-the copy directly after the source in the same container (or at the top level
-when the source is a top-level block). It reports the fresh `newId` and the
-copy's depth-first `index`, and advances the revision once.
+## Related packages
 
-Undo and redo are session state: each successful edit (and each merge) records
-the prior graph, the history is capped at 50 mutations, a new edit discards the
-redo path, and `document.undo`/`document.redo` bump the revision once. History
-is never written to a `.oword` container, so closing the document releases it.
-The CLI commands `undo <file> [--steps]` and `redo <file> [--steps]` operate on
-the opened session. Because a one-shot CLI process opens a fresh session, it has
-an empty history and the command reports that instead of inventing a mutation
-log; when a session reuses a handle, only a `.oword` input is written back to its
-own file (other formats are reported as in-memory only).
-
-`document.merge` opens the donor through the same routing as `open()`
-(`docx`/`docm`/`md`/`html`/`rtf`/`txt`/`.oword`), deep-copies its blocks to the
-end of the receiver with fresh node ids, keeps the donor's section structure,
-bumps the revision once and returns `{ blocksAdded, summary, revision, losses }`.
-Only `append` is supported; anything else rejects with `object/unsupported`.
-
-`.rtf` opens through the built-in reader as a partial text projection: paragraphs,
-line breaks, common character styles, cp1252 escapes and `\uN` code points are
-kept; tables, lists, pictures, fields, colors and the font table are reported as
-import losses. RTF export writes those same constructs: tables degrade to
-tab-separated paragraph rows (`export.rtf.table`), pictures are skipped
-(`export.rtf.image`) and link destinations are dropped while their text stays
-(`export.rtf.link`). All import and export codes are listed in
-`formats.rtf.lossCodes`, and `formats.rtf.export` is `partial`.
-
-Without a built binding every engine call rejects with
-`capability/not-implemented`. Classification is not a support claim: reads,
-writes and export targets come from `capabilities()`, never from an extension or
-a method name.
-
-## Boundaries
-
-- No DOCX parsing or writing, styles, templates, rendering, ZIP or XML code in
-  this package.
-- No second document model: the CLI, the studio and the agent skills consume the
-  same document revision.
-- Native access goes through the platform binding package.
-
-## Scripts
-
-```bash
-pnpm --filter @wae/open-word run typecheck
-pnpm --filter @wae/open-word run build
-pnpm --filter @wae/open-word run test
-```
+- [`@wae/open-word-skills`](../open-word-skills/README.md) — agent skill documents.
+- [`@wae/open-word-ui`](../open-word-ui/README.md) — OpenWord Studio.
+- Platform addons `@wae/open-word-<platform>-<arch>` are installed automatically as optional dependencies.

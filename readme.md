@@ -1,145 +1,89 @@
 # OpenWord
 
 ![.docx](https://img.shields.io/badge/format-docx-blue)
-![Preserve](https://img.shields.io/badge/preserve-styles%20%7C%20tables%20%7C%20headers-brightgreen)
+![Preserve](https://img.shields.io/badge/preserve-styles%20%7C%20tables%20%7C%20headings-brightgreen)
 ![Template Fill](https://img.shields.io/badge/template-placeholder--fill-blue)
+![License](https://img.shields.io/badge/license-MPL--2.0-blue)
 
-CLI/SDK for Word `.docx` authoring, template documents, and high-fidelity conversion. One document model serves the command line, the agent skills and the desktop studio, so editing, inspection and delivery never disagree about what a document contains.
+[Package](projects/packages/open-word/README.md) · [Agent reference](documentation/agents.md) · [License](License.md)
 
-## Architecture
+## 💡 What is OpenWord?
 
-```mermaid
-graph LR
-    A[.docx file] --> B[OpenWord]
-    C[CLI · SDK · Agent] --> B
-    B --> D[Native bridge]
-    D --> E[Document processing engine]
-    F[UI (VMZ)] --> B
+OpenWord is a document workspace for Word `.docx` files. Create a report from scratch or from an existing document, fill `{{key}}` placeholders, find and replace text, duplicate or move sections, merge documents, inspect structure, then export editable DOCX or a PDF, Markdown, HTML, plain-text or RTF rendering.
+
+The same document model backs the `open-word` command line, the TypeScript SDK, the bundled agent skill and the OpenWord Studio desktop window. An agent can start a document, you can review it in the studio, and a script can re-export it later without any of them disagreeing about what the document contains or which revision is current.
+
+OpenWord is not a Word clone and not a full template engine. Placeholders are literal substitutions, not conditionals or loops. Macros are never executed, and `.doc`, `.dotx`, `.dotm` and `.odt` inputs are reported as unsupported. PDF export is a fixed projection that cannot be reopened for editing, while RTF import and export are partial and report their losses.
+
+## 🚀 Getting started
+
+### 1. Agent / prompt (recommended)
+
+OpenWord ships an agent skill named `open-word` in `@wae/open-word-skills`. Install the CLI and the skill, then hand your agent a task in ordinary document language:
+
+```text
+Use the open-word skill to turn notes/account-review.md into a
+review-ready account-review.docx. Preflight with
+`open-word capabilities --json`, keep headings and tables native,
+export DOCX plus a PDF preview, and report any losses.
 ```
 
-## What it does NOT do
-
-- **No `.docx` parser or writer implementation** — OOXML parsing, the style model, image handling and section math belong to the shared processing engine. This repository only binds it.
-- **No document algorithms** — style inheritance, layout, conversion and review rules live upstream.
-- **No fixture corpus** — golden documents, conformance fixtures and round-trip acceptance suites live downstream. This repository keeps minimal smoke-level tests only.
-- **No second document model** — the CLI, the studio and the agent skills consume the same document revision.
-- **No algorithms in the skills package** — it ships skill documents only.
-- **No template engine** — `create --template` starts from an existing document and `template.fill` substitutes `{{key}}` placeholders only. Conditionals, loops, formulas and style merging are not implemented.
-- **No macro, ODT or legacy Word input** — those formats are reported as unsupported. RTF is read by a small built-in reader as a declared text projection, never as a full word processor.
-
-## Usage
+Every task should start with the capability preflight. It reports what the installed build can actually read, edit and export:
 
 ```bash
-open-word capabilities
-open-word create --out report.oword --title "Research review"
-open-word open report.docx
-open-word save report.docx --out report.oword
-open-word inspect report.docx --checks styles,tables,links
-open-word stats report.docx
-open-word outline report.docx
-open-word find report.oword "revenue" --limit 5
-open-word replace report.oword --find "old name" --with "new name" --ignore-case --whole-word --out report.oword --overwrite
-open-word template letter.docx --values '{"name":"Ada","amount":42}' --out letter-filled.oword --overwrite
-open-word create --template letter.docx --title "Renewal" --out letter.oword
-open-word edit report.oword --heading "Results" --level 2 --paragraph "Numbers held." --out report.oword --overwrite
-open-word edit report.oword --duplicate-block section-2 --out report.oword --overwrite
-open-word export report.oword --format pdf --out report.pdf --overwrite
-open-word gui
+open-word capabilities --json
 ```
 
-```ts
-import { OpenWord } from '@wae/open-word';
+The JSON result is a single `wae.cli-result/v0` envelope, so an agent can check `formats`, `checks` and `exportTargets` before promising an output.
 
-const word = new OpenWord();
-await word.create({ title: 'Research review' });
-await word.edit([{ type: 'heading.append', level: 1, text: 'Results' }]);
-await word.edit([{ type: 'block.duplicate', id: 'section-1' }]);
-await word.save('report.oword');
-await word.export({ format: 'docx', target: 'report.docx' });
-await word.dispose();
+### 2. Manual install
+
+```bash
+pnpm add @wae/open-word
+pnpm exec open-word capabilities
+pnpm exec open-word create --out account-review.oword --title "Account review"
+pnpm exec open-word edit account-review.oword --heading "Summary" --level 1 --paragraph "Numbers held." --out account-review.oword --overwrite
+pnpm exec open-word export account-review.oword --format docx --out account-review.docx --overwrite
 ```
 
-`capabilities` reports what the installed engine actually routes: `.docx`/`.docm`
-import and `docx`/`md`/`html`/`pdf`/`txt` export are supported, `.md`/`.html`/`.txt`/`.pdf`
-open for reading (PDF import is partial), `.rtf` opens as a partial text
-projection, and `.dotx`/`.dotm`/`.doc`/`.odt` are unsupported. RTF import keeps
-paragraphs, `\par`/`\line` breaks, `\b`/`\i`/`\ul`/`\strike`/`\super`/`\sub`
-runs, `\plain` resets, cp1252 `\'hh` escapes and `\uN` code points. Tables and
-lists degrade to paragraphs, and the font table, color table, pictures and field
-instructions are skipped; each loss is reported as `import.rtf.table|list|image|field|color|font`
-and declared in `formats.rtf.lossCodes`.
+The platform package for your machine is installed automatically as an optional dependency; there is no separate build step for users.
 
-Editing works on the shared document model: append paragraphs, headings and
-tables, insert a paragraph at any depth-first position, replace text across
-titles, paragraphs, list items and table cells, remove a block with its whole
-subtree, update one paragraph's text by block id or depth-first index, move a
-block (with its subtree) to another depth-first position, duplicate a block
-with its whole subtree as fresh node ids inserted directly after the source,
-set one table cell, and insert or delete table rows and columns. Row and column
-edits keep every row on the same grid: inserted cells use `colspan`/`rowspan`
-1, an inserted column adds one grid column to every row, and deleting the last
-row or column is rejected. `block.duplicate` deep-copies the addressed block
-and everything nested under it, gives every copied block a fresh node id, and
-inserts the copy directly after the source inside the same container
-(section/quote children, list item children or table cell children), or after
-it at the top level when the source has no container. Inline content, styles
-and table structure are copied as-is and asset references stay shared, never
-re-registered. Every operation advances exactly one revision, a batch is
-validated before the first mutation, and `expectedRevision` rejects stale
-writes. `find` searches the same text in document order and reports character
-offsets per
-block. `replace` searches titles, paragraphs, list items and table cells and
-returns the changed block addresses: matching is case-sensitive unless
-`--ignore-case` is given, `--whole-word` requires a non-word character on both
-sides, and `--limit` caps the total. One committing pass advances the revision
-once and is undoable; a pass with no match changes nothing. `inspect` runs
-structural rules (sections, tables, links, images, styles, fonts) and reports
-the revision it observed, flagging an empty `font-family` declaration or a
-`font-size` that is not a positive point value. PDF export is a projection and cannot be
-reopened for editing. Plain-text export uses `#` heading markers, `-` list items
-and tabbed table rows.
+## ✨ Highlights
 
-`stats` reports the block, paragraph, heading-per-level, table and table-row
-counts of a document, plus word and character counts and a reading time at 200
-words per minute. Words are whitespace-separated and read from section titles,
-paragraphs, list items and table cells in document order.
+- **One document, four surfaces.** The CLI, TypeScript SDK, agent skill and studio all read and write the same revisioned document.
+- **Real Word workflows.** Create, append headings, paragraphs, lists, quotes, code blocks and tables; insert, update, remove, move and duplicate blocks; edit table cells and rows and columns on a consistent grid.
+- **Template fill without a template language.** `create --template` starts from any document that `open` accepts, and `template.fill` replaces `{{key}}` or `{{ key }}` with strings, numbers or booleans. Unknown placeholders stay verbatim.
+- **Find and replace in place.** Search section titles, paragraphs, list items and table cells, with case-sensitive matching by default, optional whole-word matching and a total replacement limit.
+- **Document review, not a score.** `inspect` runs structural checks for sections, tables, links, images, styles and fonts and reports the revision it observed.
+- **Navigation built in.** `outline` returns every heading once, nested by level with stable `section-N` addresses; `stats` reports block, heading, table, word and reading-time counts.
+- **Deliberate delivery.** Export `docx`, `pdf`, `html`, `md`, `txt` or `rtf`; PDF is marked non-editable, and RTF reports `import.rtf.*` / `export.rtf.*` loss codes.
+- **Undo that stays honest.** History is session-local, capped at 50 mutations, and never written into a project file.
+- **Merge with clean identities.** Append another document's blocks with fresh node ids while keeping its section structure.
 
-`outline` lists every section heading exactly once, nested under the closest
-preceding heading with a lower level, so a level-3 heading under a level-1
-heading becomes its direct child rather than a sibling. Each item carries its
-`section-N` id, heading level, title (`null` when the heading is empty),
-depth-first `blockIndex` and its child items, which lets a caller render a table
-of contents or address a heading without walking the flat summary.
+## 📊 How OpenWord compares
 
-Template filling is placeholder substitution, not a template engine:
-`create --template` opens an existing document (any format `open` accepts) and
-applies the optional title/author, while `template.fill` replaces `{{key}}` and
-`{{ key }}` placeholders with string, number or boolean values. Unknown
-placeholders stay verbatim, and one fill batch advances the revision once.
+| Need | Desktop Office automation | OOXML byte scripting | OpenWord |
+| --- | --- | --- | --- |
+| Works without Word or LibreOffice installed | No | Yes | Yes |
+| One document state shared by CLI, SDK, agents and studio | No | No | Yes |
+| Template filling | Word fields, macros or add-ins | Build it yourself | `{{key}}` substitution |
+| Structural review built in | Manual inspection | No | `inspect` checks |
+| PDF output | Export | Build it yourself | Export, marked non-editable |
+| Macro handling | May execute | Not handled | Never executed |
 
-## Repo layout
+OpenWord deliberately stops at placeholder substitution: no conditionals, loops, formulas or style merging are implied by `template.fill`.
 
-```
-OpenWord/
-├── projects/
-│   ├── packages/
-│   │   ├── open-word/              # CLI + SDK entry point
-│   │   ├── open-word-skills/       # Agent skill documents
-│   │   ├── open-word-ui/           # VMZ desktop studio UI
-│   │   ├── open-word-win32-x64/    # Windows x64 native addon
-│   │   ├── open-word-darwin-x64/   # macOS x64 native addon
-│   │   ├── open-word-darwin-arm64/ # macOS ARM64 native addon
-│   │   ├── open-word-linux-x64/    # Linux x64 native addon
-│   │   └── open-word-linux-arm64/  # Linux ARM64 native addon
-│   └── sites/
-│       └── homepage/               # Product homepage
-├── package.json
-└── pnpm-workspace.yaml
-```
+## 🧪 Examples
 
-This repository ships the first usable slice: project containers, Word,
-Markdown/HTML/text import, partial RTF import, structural inspection, document
-statistics and nested heading outlines, atomic edits (including table grids,
-block moves and `{{key}}` template filling), text search and
-`docx`/`md`/`html`/`pdf`/`txt` export. Macro handling and the remaining format
-family are reported as unsupported until they are wired.
+- [Create an Account review report](projects/packages/open-word/README.md#example)
+- [Fill a Record template from JSON values](projects/packages/open-word/README.md#api-surface)
+- [Find and replace an old account name](projects/packages/open-word/README.md#api-surface)
+- [Duplicate a section and its children](projects/packages/open-word/README.md#api-surface)
+- [Merge two documents into one](documentation/agents.md#edit-operation-json)
+- [Inspect structure and export DOCX, PDF, Markdown, HTML or RTF](documentation/agents.md#cli-entry-points)
+- [Drive OpenWord from an agent](documentation/agents.md)
+- [Open the OpenWord Studio window](projects/packages/open-word-ui/README.md)
+
+## 📜 License
+
+OpenWord is released under the Mozilla Public License 2.0. See [License.md](License.md).

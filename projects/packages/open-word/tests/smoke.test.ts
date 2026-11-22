@@ -11,9 +11,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { OpenWord, OpenWordError, documentFormats, formatFromPath, formatInfo } from './index.js';
-import type { DocumentOpenInput, ExportFormat } from './index.js';
-import { nativeBinding } from './native.js';
+import { OpenWord, OpenWordError, documentFormats, formatFromPath, formatInfo } from '../src/index.js';
+import type { DocumentOpenInput, ExportFormat } from '../src/index.js';
+import { nativeBinding } from '../src/native.js';
 
 const installed = (() => {
     try {

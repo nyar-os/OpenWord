@@ -1,7 +1,6 @@
 {
     "name": "@wae/open-word",
     "version": "0.0.0",
-    "private": true,
     "description": "Document authoring on one model: create, inspect and export Word-compatible documents",
     "license": "MPL-2.0",
     "type": "module",
@@ -26,7 +25,7 @@
     "scripts": {
         "build": "tsc -p tsconfig.json",
         "typecheck": "tsc -p tsconfig.json --noEmit",
-        "test": "tsc -p tsconfig.json && node --test dist/smoke.test.js"
+        "test": "tsc -p tsconfig.test.json && node --test dist-test/tests/smoke.test.js"
     },
     "keywords": [
         "docx",

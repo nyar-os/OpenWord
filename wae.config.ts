@@ -119,9 +119,8 @@ export default defineConfig({
             },
         ],
     },
-    // `release` is intentionally unset while the app packages stay `private`;
-    // the platform packages are the only publishable set and have no CI release
-    // workflow yet.
+    // `release` is intentionally unset: nifty publishes the app package and
+    // the platform packages; the studio and skills packages stay private.
     ci: {
         repo: 'nyar-os/OpenWord',
         workflows: ['check-rust.yml', 'check-typescript.yml'],

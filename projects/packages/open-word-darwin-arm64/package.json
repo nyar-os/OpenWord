@@ -1,13 +1,23 @@
 {
     "name": "@wae/open-word-darwin-arm64",
-    "version": "0.0.0",
+    "version": "0.0.1",
     "description": "macOS ARM64 native addon for @wae/open-word",
     "license": "MPL-2.0",
-    "os": ["darwin"],
-    "cpu": ["arm64"],
+    "os": [
+        "darwin"
+    ],
+    "cpu": [
+        "arm64"
+    ],
     "main": "open-word.darwin-arm64.node",
-    "files": ["open-word.darwin-arm64.node", "README.md", "License.md"],
-    "engines": { "node": ">=18" },
+    "files": [
+        "open-word.darwin-arm64.node",
+        "README.md",
+        "License.md"
+    ],
+    "engines": {
+        "node": ">=18"
+    },
     "repository": {
         "type": "git",
         "url": "git+https://github.com/nyar-os/OpenWord.git",

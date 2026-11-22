@@ -186,6 +186,45 @@ fn set_heading_level_relevels_only_the_addressed_section() {
 }
 
 #[test]
+fn set_heading_text_keeps_level_children_and_position() {
+    let workspace = Workspace::new("heading-text");
+    let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");
+    let handle = handle_of(&opened);
+
+    let before = outline(handle).expect("outline");
+    let items = before["items"].as_array().expect("items");
+    let (details_id, details_level) = find_heading(items, "Details").expect("Details heading");
+
+    let result =
+        edit(handle, &json!({ "operations": [{ "type": "heading.setText", "id": details_id, "text": "  Background  " }] }))
+            .expect("set heading text");
+    assert_eq!(
+        result["results"][0],
+        json!({ "type": "heading.setText", "id": details_id, "text": "Background" })
+    );
+    assert_eq!(revision_of(&result), 1);
+    assert_eq!(result["document"]["sections"][1]["title"], json!("Background"));
+
+    let after = outline(handle).expect("outline after");
+    let items = after["items"].as_array().expect("items");
+    assert_eq!(find_heading(items, "Details"), None);
+    let renamed = find_heading(items, "Background").expect("renamed heading");
+    assert_eq!(renamed.0, details_id);
+    assert_eq!(renamed.1, details_level);
+
+    let blank = edit(handle, &json!({ "operations": [{ "type": "heading.setText", "id": details_id, "text": "   " }] }))
+        .expect_err("blank title");
+    assert_eq!(blank.code, "session/argument-invalid");
+
+    let missing =
+        edit(handle, &json!({ "operations": [{ "type": "heading.setText", "id": "section-9999", "text": "X" }] }))
+            .expect_err("missing heading");
+    assert_eq!(missing.code, "object/not-found");
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn replace_text_accepts_regular_expressions_and_capture_groups() {
     let created = create(&json!({ "title": "Pattern" })).expect("create");
     let handle = handle_of(&created);

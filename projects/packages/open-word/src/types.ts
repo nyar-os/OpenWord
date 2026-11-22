@@ -245,6 +245,14 @@ export type EditOperation =
           readonly level: number;
       }
     | {
+          /** Replaces the title of an existing heading, keeping its level and children. */
+          readonly type: 'heading.setText';
+          /** Heading address such as `section-3`. */
+          readonly id: string;
+          /** New title, stored as one plain text run. */
+          readonly text: string;
+      }
+    | {
           readonly type: 'list.append';
           readonly ordered?: boolean;
           readonly items: readonly string[];
@@ -339,6 +347,8 @@ export interface EditOperationResult {
     readonly caption?: string | null;
     /** Level applied by `heading.setLevel`. */
     readonly level?: number;
+    /** Title applied by `heading.setText`. */
+    readonly text?: string;
 }
 
 /** Result of one edit batch. */

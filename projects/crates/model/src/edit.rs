@@ -16,6 +16,7 @@ enum Operation {
     Paragraph(String),
     Heading { level: u8, text: String },
     HeadingLevel { section: NodeId, level: u8 },
+    HeadingText { section: NodeId, text: String },
     List { ordered: bool, items: Vec<String>, start: Option<u32> },
     TaskList(Vec<(String, bool)>),
     Quote(String),
@@ -118,6 +119,15 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
                 return Err(crate::invalid("`level` must be between 1 and 6"));
             }
             Ok(Operation::HeadingLevel { section: parse_block_id(operation)?, level: level as u8 })
+        }
+        "heading.setText" => {
+            let text = operation
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .ok_or_else(|| crate::invalid("`heading.setText` needs a non-empty `text`"))?;
+            Ok(Operation::HeadingText { section: parse_block_id(operation)?, text: text.to_owned() })
         }
         "list.append" => {
             let ordered = optional_bool(operation, "ordered")?.unwrap_or(false);
@@ -388,6 +398,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             let label = set_heading_level(graph, section, level)?;
             graph.bump_revision();
             Ok(json!({ "type": "heading.setLevel", "id": label, "level": level }))
+        }
+        Operation::HeadingText { section, text } => {
+            let label = set_heading_text(graph, section, &text)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "heading.setText", "id": label, "text": text }))
         }
         Operation::List { ordered, items, start } => {
             let count = items.len();
@@ -1167,6 +1182,27 @@ fn set_heading_level(graph: &mut DocumentGraph, id: NodeId, level: u8) -> Result
             Ok(label)
         }
         _ => Err(crate::invalid("`heading.setLevel` needs a heading section; the addressed block is not one")),
+    }
+}
+
+/// Replaces the title of one existing heading section and returns its address.
+///
+/// The level, children and position stay as they are; the title becomes one
+/// plain inline run so callers can rely on the exact text they passed.
+fn set_heading_text(graph: &mut DocumentGraph, id: NodeId, text: &str) -> Result<String, ServiceError> {
+    if !graph.blocks.iter().any(|node| node.id == id) {
+        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+    }
+    let label =
+        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+    match &mut node.block {
+        Block::Section { title, .. } => {
+            title.clear();
+            title.push(Inline::Text { text: text.to_owned() });
+            Ok(label)
+        }
+        _ => Err(crate::invalid("`heading.setText` needs a heading section; the addressed block is not one")),
     }
 }
 

@@ -1685,6 +1685,62 @@ fn list_item_edits_replace_insert_and_remove_items_in_place() {
 }
 
 #[test]
+fn task_items_toggle_and_list_items_move_in_place() {
+    let workspace = Workspace::new("listmoving");
+    let created = create(&json!({ "title": "Checklist" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "taskList.append", "items": [{ "text": "Draft", "checked": false }, "Review", "Ship"] },
+        { "type": "list.append", "items": ["One", "Two", "Three"], "ordered": true, "start": 3 },
+    ] }))
+    .expect("append a task list and an ordered list");
+    // node-1 is the task list, node-2 the ordered list.
+
+    let toggled =
+        edit(handle, &json!({ "operations": [{ "type": "list.setItemChecked", "id": "node-1", "item": 1, "checked": true }] }))
+            .expect("check the second task");
+    assert_eq!(toggled["results"][0]["type"], json!("list.setItemChecked"));
+    assert_eq!(toggled["results"][0]["id"], json!("node-1"));
+    assert_eq!(toggled["results"][0]["item"], json!(1));
+    assert_eq!(toggled["results"][0]["checked"], json!(true));
+
+    let moved = edit(handle, &json!({ "operations": [{ "type": "list.moveItem", "id": "node-1", "item": 2, "index": 0 }] }))
+        .expect("move the last task to the front");
+    assert_eq!(moved["results"][0]["type"], json!("list.moveItem"));
+    assert_eq!(moved["results"][0]["index"], json!(0));
+
+    // An ordered list renumbers from the number its first item carried.
+    edit(handle, &json!({ "operations": [{ "type": "list.moveItem", "id": "node-2", "item": 0, "index": 2 }] }))
+        .expect("move the first ordered item to the end");
+
+    let exported = workspace.path("checklist.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    let position = |marker: &str| text.find(marker).unwrap_or_else(|| panic!("missing {marker:?} in: {text}"));
+    assert!(position("- [ ] Ship") < position("- [ ] Draft"), "the move put Ship first: {text}");
+    assert!(text.contains("- [x] Review"), "the toggled task is checked: {text}");
+    assert!(!text.contains("- [x] Ship"), "the moved task keeps its own state: {text}");
+    assert!(text.contains("3. Two") && text.contains("4. Three") && text.contains("5. One"), "renumbered run: {text}");
+
+    // A non-task list has no check state, a missing boolean is refused and an
+    // index outside the run is rejected before anything changes.
+    let before = revision_of(&summary(handle).expect("summary"));
+    let not_a_task =
+        edit(handle, &json!({ "operations": [{ "type": "list.setItemChecked", "id": "node-2", "item": 0, "checked": true }] }))
+            .expect_err("an ordered list has no check state");
+    assert_eq!(not_a_task.code, "session/argument-invalid");
+    let out_of_range = edit(handle, &json!({ "operations": [{ "type": "list.moveItem", "id": "node-1", "item": 0, "index": 9 }] }))
+        .expect_err("index outside the run");
+    assert_eq!(out_of_range.code, "session/argument-invalid");
+    let missing_checked = edit(handle, &json!({ "operations": [{ "type": "list.setItemChecked", "id": "node-1", "item": 0 }] }))
+        .expect_err("a missing boolean must fail");
+    assert_eq!(missing_checked.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn ordered_list_item_edits_renumber_from_the_list_start() {
     let workspace = Workspace::new("ordereditems");
     let created = create(&json!({ "title": "Steps" })).expect("create");

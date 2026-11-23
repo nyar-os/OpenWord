@@ -22,6 +22,8 @@ enum Operation {
     SetListOrdered { list: NodeId, ordered: bool },
     SetListStart { list: NodeId, start: u32 },
     SetListItem { block: NodeId, item: usize, text: String },
+    SetItemChecked { block: NodeId, item: usize, checked: bool },
+    MoveListItem { block: NodeId, item: usize, index: usize },
     InsertListItem { block: NodeId, item: usize, text: String },
     RemoveListItem { block: NodeId, item: usize },
     TaskList(Vec<(String, bool)>),
@@ -182,6 +184,16 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             }
             Ok(Operation::SetListItem { block: parse_block_id(operation)?, item: required_index(operation, "item")?, text })
         }
+        "list.setItemChecked" => {
+            let checked = optional_bool(operation, "checked")?
+                .ok_or_else(|| crate::invalid("`list.setItemChecked` needs a boolean `checked`"))?;
+            Ok(Operation::SetItemChecked { block: parse_block_id(operation)?, item: required_index(operation, "item")?, checked })
+        }
+        "list.moveItem" => Ok(Operation::MoveListItem {
+            block: parse_block_id(operation)?,
+            item: required_index(operation, "item")?,
+            index: required_index(operation, "index")?,
+        }),
         "list.insertItem" => {
             let text = required_text(operation, "text")?;
             if text.trim().is_empty() {
@@ -547,6 +559,16 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             let label = set_list_item(graph, block, item, text)?;
             graph.bump_revision();
             Ok(json!({ "type": "list.setItem", "id": label, "item": item }))
+        }
+        Operation::SetItemChecked { block, item, checked } => {
+            let label = set_list_item_checked(graph, block, item, checked)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "list.setItemChecked", "id": label, "item": item, "checked": checked }))
+        }
+        Operation::MoveListItem { block, item, index } => {
+            let label = move_list_item(graph, block, item, index)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "list.moveItem", "id": label, "item": item, "index": index }))
         }
         Operation::InsertListItem { block, item, text } => {
             let label = insert_list_item(graph, block, item, text)?;
@@ -1691,6 +1713,55 @@ fn set_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, text: Strin
         .get_mut(item)
         .ok_or_else(|| crate::invalid(format!("item {item} is outside the list's {count} items")))?;
     target.content = vec![Inline::Text { text }];
+    Ok(label)
+}
+
+/// Sets the check state of one task item and returns the list's address.
+///
+/// Only task lists carry a check state, so a bullet or numbered list is refused;
+/// the item's text, number and nested children stay as they are.
+fn set_list_item_checked(graph: &mut DocumentGraph, id: NodeId, item: usize, checked: bool) -> Result<String, ServiceError> {
+    let label = resolve_list(graph, id, "`list.setItemChecked`")?;
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
+    let Block::List { items, .. } = &mut node.block
+    else {
+        unreachable!("the list was just checked");
+    };
+    let count = items.len();
+    let target =
+        items.get_mut(item).ok_or_else(|| crate::invalid(format!("item {item} is outside the list's {count} items")))?;
+    if !target.is_task {
+        return Err(crate::invalid("`list.setItemChecked` needs a task list; append one with `taskList.append` first"));
+    }
+    target.is_checked = Some(checked);
+    Ok(label)
+}
+
+/// Moves one item to a new position inside its list and returns the list's address.
+///
+/// The item keeps its text, check state and nested children; only its position
+/// changes. An ordered list is renumbered from the number its first item carried,
+/// so the run stays consecutive.
+fn move_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, index: usize) -> Result<String, ServiceError> {
+    let label = resolve_list(graph, id, "`list.moveItem`")?;
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
+    let Block::List { ordered, items, .. } = &mut node.block
+    else {
+        unreachable!("the list was just checked");
+    };
+    let count = items.len();
+    if item >= count {
+        return Err(crate::invalid(format!("item {item} is outside the list's {count} items")));
+    }
+    if index >= count {
+        return Err(crate::invalid(format!("`index` {index} is outside the list's {count} item positions")));
+    }
+    let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
+    let moved = items.remove(item);
+    items.insert(index, moved);
+    if *ordered {
+        renumber_items(items, base)?;
+    }
     Ok(label)
 }
 

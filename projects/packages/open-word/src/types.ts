@@ -296,6 +296,26 @@ export type EditOperation =
           readonly text: string;
       }
     | {
+          /** Sets the check state of one task item, keeping its text and nesting. */
+          readonly type: 'list.setItemChecked';
+          /** Task list address such as `node-4`. */
+          readonly id: string;
+          /** Zero-based item index inside the list. */
+          readonly item: number;
+          /** New check state. */
+          readonly checked: boolean;
+      }
+    | {
+          /** Moves one item to a new position inside its list, keeping its content. */
+          readonly type: 'list.moveItem';
+          /** List address such as `node-4`. */
+          readonly id: string;
+          /** Zero-based item index to move. */
+          readonly item: number;
+          /** Zero-based target position inside the list. */
+          readonly index: number;
+      }
+    | {
           /** Inserts a new plain item before position `item` of an existing list. */
           readonly type: 'list.insertItem';
           /** List address such as `node-4`. */

@@ -1890,6 +1890,45 @@ fn list_items_unindent_back_into_the_parent_run() {
 }
 
 #[test]
+fn list_items_duplicate_with_their_nested_children() {
+    let workspace = Workspace::new("listduplicate");
+    let created = create(&json!({ "title": "Outline" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "list.append", "items": ["Alpha", "Beta", "Gamma"] },
+        { "type": "list.append", "items": ["One", "Two"], "ordered": true },
+    ] }))
+    .expect("append a bullet list and an ordered list");
+    edit(handle, &json!({ "operations": [{ "type": "list.indentItem", "id": "node-1", "item": 2 }] }))
+        .expect("nest Gamma under Beta");
+
+    let duplicated = edit(handle, &json!({ "operations": [
+        { "type": "list.duplicateItem", "id": "node-1", "item": 1 },
+        { "type": "list.duplicateItem", "id": "node-2", "item": 0 },
+    ] }))
+    .expect("duplicate one item in each list");
+    assert_eq!(duplicated["results"][0]["type"], json!("list.duplicateItem"));
+    assert_eq!(duplicated["results"][0]["id"], json!("node-1"));
+    assert_eq!(duplicated["results"][0]["item"], json!(1));
+    assert_eq!(duplicated["results"][1]["item"], json!(0));
+
+    let exported = workspace.path("outline.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("- Alpha\n- Beta\n  - Gamma\n- Beta\n  - Gamma\n"), "the copy keeps its nested run: {text}");
+    assert!(text.contains("1. One\n2. One\n3. Two\n"), "the ordered run renumbers around the copy: {text}");
+
+    // An index outside the run is refused before anything changes.
+    let before = revision_of(&summary(handle).expect("summary"));
+    let out_of_range = edit(handle, &json!({ "operations": [{ "type": "list.duplicateItem", "id": "node-1", "item": 9 }] }))
+        .expect_err("index outside the run");
+    assert_eq!(out_of_range.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn ordered_list_item_edits_renumber_from_the_list_start() {
     let workspace = Workspace::new("ordereditems");
     let created = create(&json!({ "title": "Steps" })).expect("create");

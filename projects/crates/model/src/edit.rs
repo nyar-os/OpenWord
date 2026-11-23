@@ -28,6 +28,7 @@ enum Operation {
     IndentListItem { block: NodeId, item: usize },
     UnindentListItem { block: NodeId, item: usize },
     InsertListItem { block: NodeId, item: usize, text: String },
+    DuplicateListItem { block: NodeId, item: usize },
     RemoveListItem { block: NodeId, item: usize },
     TaskList(Vec<(String, bool)>),
     Quote(String),
@@ -232,6 +233,10 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             }
             Ok(Operation::InsertListItem { block: parse_block_id(operation)?, item: required_index(operation, "item")?, text })
         }
+        "list.duplicateItem" => Ok(Operation::DuplicateListItem {
+            block: parse_block_id(operation)?,
+            item: required_index(operation, "item")?,
+        }),
         "list.removeItem" => Ok(Operation::RemoveListItem {
             block: parse_block_id(operation)?,
             item: required_index(operation, "item")?,
@@ -717,6 +722,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             let label = insert_list_item(graph, block, item, text)?;
             graph.bump_revision();
             Ok(json!({ "type": "list.insertItem", "id": label, "item": item }))
+        }
+        Operation::DuplicateListItem { block, item } => {
+            let label = duplicate_list_item(graph, block, item)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "list.duplicateItem", "id": label, "item": item }))
         }
         Operation::RemoveListItem { block, item } => {
             let label = remove_list_item(graph, block, item)?;
@@ -2333,6 +2343,53 @@ fn insert_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, text: St
         ListItem { content: vec![Inline::Text { text }], children: Vec::new(), number: None, is_task: false, is_checked: None },
     );
     if *ordered {
+        renumber_items(items, base)?;
+    }
+    Ok(label)
+}
+
+/// Copies one item, with everything nested under it, directly after itself.
+///
+/// The copy keeps the item's text, task marker and check state while its nested
+/// blocks are deep-copied, so editing one copy leaves the other untouched. An
+/// ordered list is renumbered so the run stays consecutive.
+fn duplicate_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Result<String, ServiceError> {
+    let label = resolve_list(graph, id, "`list.duplicateItem`")?;
+    let (ordered, copied) = {
+        let node = graph.blocks.iter().find(|node| node.id == id).expect("the list was just resolved");
+        let Block::List { ordered, items, .. } = &node.block
+        else {
+            unreachable!("the list was just checked");
+        };
+        if item >= items.len() {
+            return Err(crate::invalid(format!("item {item} is outside the list's {} items", items.len())));
+        }
+        (*ordered, items[item].clone())
+    };
+    let mut ids = HashMap::new();
+    let mut children = Vec::new();
+    for child in &copied.children {
+        if graph.blocks.iter().any(|node| node.id == *child) {
+            children.push(duplicate_subtree(graph, *child, &mut ids));
+        }
+    }
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
+    let Block::List { ordered: list_ordered, items, .. } = &mut node.block
+    else {
+        unreachable!("the list was just checked");
+    };
+    let base = if ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
+    items.insert(
+        item + 1,
+        ListItem {
+            content: copied.content,
+            children,
+            number: None,
+            is_task: copied.is_task,
+            is_checked: copied.is_checked,
+        },
+    );
+    if *list_ordered {
         renumber_items(items, base)?;
     }
     Ok(label)

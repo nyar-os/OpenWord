@@ -128,6 +128,7 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `list.indentItem` | `id` (`node-N`), `item` (zero-based, at least `1`); nests the item under the item before it as a child list, joining an existing nested run of the same marker style and renumbering ordered runs on both levels; the first item is refused |
 | `list.unindentItem` | `id` (`node-N`), `item` (zero-based); lifts the item's nested list back into the parent run directly after it and sweeps the empty nested block, renumbering an ordered run; an item without a nested list of the same marker style is refused |
 | `list.insertItem` | `id` (`node-N`), `item` (zero-based, up to the item count), `text` (non-blank); inserts a plain item, renumbering an ordered list from the number its first item carried |
+| `list.duplicateItem` | `id` (`node-N`), `item` (zero-based); deep-copies the item directly after the source, keeping its text, task marker, check state and nested children, renumbering an ordered list from its first number |
 | `list.removeItem` | `id` (`node-N`), `item` (zero-based); removes the item and everything nested under it, renumbers an ordered list, refuses to empty the list |
 | `taskList.append` | `items: (string \| { text, checked? })[]`; exports keep `[ ]`/`[x]` |
 | `quote.append` | `text` (non-empty) |

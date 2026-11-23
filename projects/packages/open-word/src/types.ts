@@ -354,6 +354,14 @@ export type EditOperation =
           readonly text: string;
       }
     | {
+          /** Copies one item, with everything nested under it, directly after itself. */
+          readonly type: 'list.duplicateItem';
+          /** List address such as `node-4`. */
+          readonly id: string;
+          /** Zero-based item index; must exist in the run. */
+          readonly item: number;
+      }
+    | {
           /** Removes one item, with everything nested under it, from an existing list. */
           readonly type: 'list.removeItem';
           /** List address such as `node-4`. */
@@ -560,7 +568,7 @@ export interface EditOperationResult {
     readonly ordered?: boolean;
     /** First number requested by `list.append` or applied by `list.setStart`; `null` when none was given or the list is unordered. */
     readonly start?: number | null;
-    /** Item index addressed by `list.setItem`, `list.indentItem`, `list.unindentItem`, `list.insertItem` or `list.removeItem`. */
+    /** Item index addressed by `list.setItem`, `list.indentItem`, `list.unindentItem`, `list.insertItem`, `list.duplicateItem` or `list.removeItem`. */
     readonly item?: number;
     /** Language tag of a code block or the language applied by `metadata.set`; `null` when none was given. */
     readonly language?: string | null;

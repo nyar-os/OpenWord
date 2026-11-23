@@ -44,6 +44,7 @@ enum Operation {
     SetTableFooterRows { table: usize, rows: Vec<Vec<String>> },
     SetCellSpan { table: usize, row: usize, column: usize, colspan: u32, rowspan: u32 },
     SortTableRows { table: usize, column: usize, ascending: bool },
+    SetTextCase { id: NodeId, case: TextCase },
     Metadata { title: Option<String>, author: Option<String>, language: Option<String>, tags: Option<Vec<String>> },
     ReplaceText(replace::Request),
     RemoveBlock { id: NodeId },
@@ -397,6 +398,11 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
         "block.move" => Ok(Operation::MoveBlock { id: parse_block_id(operation)?, index: required_index(operation, "index")? }),
         "block.duplicate" => Ok(Operation::DuplicateBlock { id: parse_block_id(operation)? }),
         "template.fill" => Ok(Operation::TemplateFill { values: required_values(operation)? }),
+        "block.setTextCase" => {
+            let case = TextCase::parse(&required_text(operation, "case")?)
+                .ok_or_else(|| crate::invalid("`case` must be `upper`, `lower` or `title`"))?;
+            Ok(Operation::SetTextCase { id: parse_block_id(operation)?, case })
+        }
         other => Err(ServiceError::new("object/unsupported", format!("edit operation `{other}` is not supported"))),
     }
 }
@@ -839,6 +845,12 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             sort_table_rows(graph, table, column, ascending)?;
             graph.bump_revision();
             Ok(json!({ "type": "table.sortRows", "table": table, "column": column, "ascending": ascending }))
+        }
+        Operation::SetTextCase { id, case } => {
+            let label = graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id));
+            let changed = set_text_case(graph, id, case)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "block.setTextCase", "id": label, "case": case.label(), "changed": changed }))
         }
         Operation::SetCell { table, row, column, text } => {
             set_cell(graph, table, row, column, text)?;
@@ -1398,6 +1410,114 @@ fn set_caption(graph: &mut DocumentGraph, table: usize, caption: Option<String>)
 /// order is descending. Vertical merges are refused because rowspans would
 /// describe the wrong rows after a reorder; horizontal spans are fine. The
 /// header and footer bands keep their positions.
+/// Casing rule applied by `block.setTextCase`.
+#[derive(Clone, Copy)]
+enum TextCase {
+    Upper,
+    Lower,
+    Title,
+}
+
+impl TextCase {
+    /// Parses one case name; `None` means the name is not supported.
+    fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "upper" | "uppercase" => Some(Self::Upper),
+            "lower" | "lowercase" => Some(Self::Lower),
+            "title" | "titlecase" => Some(Self::Title),
+            _ => None,
+        }
+    }
+
+    /// Stable name echoed by the operation report.
+    fn label(self) -> &'static str {
+        match self {
+            Self::Upper => "upper",
+            Self::Lower => "lower",
+            Self::Title => "title",
+        }
+    }
+
+    /// Rewrites one run of text.
+    fn convert(self, text: &str) -> String {
+        match self {
+            Self::Upper => text.to_uppercase(),
+            Self::Lower => text.to_lowercase(),
+            Self::Title => {
+                let mut result = String::with_capacity(text.len());
+                let mut start = true;
+                for character in text.chars() {
+                    if character.is_whitespace() {
+                        result.push(character);
+                        start = true;
+                    }
+                    else if start {
+                        result.extend(character.to_uppercase());
+                        start = false;
+                    }
+                    else {
+                        result.extend(character.to_lowercase());
+                    }
+                }
+                result
+            }
+        }
+    }
+}
+
+/// Applies one casing rule to the block's own text, not to nested blocks.
+///
+/// A paragraph body, heading title, list item text and code content carry their
+/// own text; table cells and quoted children are separate blocks, so they keep
+/// their own casing. Returns how many runs changed.
+fn set_text_case(graph: &mut DocumentGraph, id: NodeId, case: TextCase) -> Result<usize, ServiceError> {
+    let Some(node) = graph.blocks.iter_mut().find(|node| node.id == id)
+    else {
+        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+    };
+    let changed = match &mut node.block {
+        Block::Paragraph { content } => case_inlines(content, case),
+        Block::Section { title, .. } => case_inlines(title, case),
+        Block::List { items, .. } => items.iter_mut().map(|item| case_inlines(&mut item.content, case)).sum(),
+        Block::Code { content, .. } => case_text(content, case),
+        _ => {
+            return Err(crate::invalid(
+                "`block.setTextCase` needs a paragraph, heading, list or code block",
+            ));
+        }
+    };
+    Ok(changed)
+}
+
+/// Rewrites text-bearing inlines while leaving math, media and breaks alone.
+fn case_inlines(inlines: &mut [Inline], case: TextCase) -> usize {
+    let mut changed = 0;
+    for inline in inlines {
+        match inline {
+            Inline::Text { text } | Inline::InlineCode { text } => changed += case_text(text, case),
+            Inline::Reference { display, .. } => changed += case_text(display, case),
+            Inline::Styled { children, .. } | Inline::Attributed { children, .. } => changed += case_inlines(children, case),
+            Inline::Link { display, .. } => changed += case_inlines(display, case),
+            Inline::Image { alt, .. } => changed += case_inlines(alt, case),
+            Inline::Note { display: Some(display), .. } | Inline::Citation { display: Some(display), .. } => {
+                changed += case_inlines(display, case);
+            }
+            _ => {}
+        }
+    }
+    changed
+}
+
+/// Rewrites one string, reporting one change when the text actually moved.
+fn case_text(text: &mut String, case: TextCase) -> usize {
+    let next = case.convert(text);
+    if next == *text {
+        return 0;
+    }
+    *text = next;
+    1
+}
+
 fn sort_table_rows(graph: &mut DocumentGraph, table: usize, column: usize, ascending: bool) -> Result<(), ServiceError> {
     let table_id = table_id_at(graph, table)?;
     let body = {

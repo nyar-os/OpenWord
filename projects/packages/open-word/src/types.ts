@@ -525,6 +525,14 @@ export type EditOperation =
       }
     | { readonly type: 'paragraph.update'; readonly id?: string; readonly index?: number; readonly text: string }
     | { readonly type: 'block.move'; readonly id: string; readonly index: number }
+    | {
+          /** Rewrites the block's own text with a casing rule; nested blocks keep theirs. */
+          readonly type: 'block.setTextCase';
+          /** Block address: `section-N` or `node-N`. */
+          readonly id: string;
+          /** Casing rule applied to paragraph, heading, list item and code text. */
+          readonly case: 'upper' | 'lower' | 'title';
+      }
     | BlockDuplicateOperation
     | {
           readonly type: 'template.fill';
@@ -556,6 +564,10 @@ export interface EditOperationResult {
     readonly newId?: string;
     /** Depth-first position the block an operation created now holds. */
     readonly index?: number;
+    /** Casing rule applied by `block.setTextCase`. */
+    readonly case?: 'upper' | 'lower' | 'title';
+    /** Text runs rewritten by `block.setTextCase`. */
+    readonly changed?: number;
     /** List items created by `list.append` or `taskList.append`. */
     readonly items?: number;
     /** Checked items created by `taskList.append`, or the state applied by `list.setItemTask`. */

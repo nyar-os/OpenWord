@@ -1956,6 +1956,48 @@ fn ordered_list_item_edits_renumber_from_the_list_start() {
 }
 
 #[test]
+fn block_text_case_rewrites_paragraph_and_heading_text() {
+    let workspace = Workspace::new("textcase");
+    let created = create(&json!({ "title": "Casing" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "heading.append", "level": 2, "text": "section TITLE" }] }))
+        .expect("append heading");
+    let inserted = edit(handle, &json!({ "operations": [{ "type": "paragraph.insert", "index": 0, "text": "hello WORLD" }] }))
+        .expect("insert paragraph");
+    let paragraph = inserted["results"][0]["id"].as_str().expect("paragraph id").to_owned();
+    let outline_report = outline(handle).expect("outline");
+    let (heading, _) = find_heading(outline_report["items"].as_array().expect("items"), "section TITLE")
+        .expect("heading lookup");
+
+    let report = edit(handle, &json!({ "operations": [
+        { "type": "block.setTextCase", "id": paragraph, "case": "title" },
+        { "type": "block.setTextCase", "id": heading, "case": "upper" },
+    ] }))
+    .expect("apply casing");
+    assert_eq!(report["results"][0]["case"], json!("title"));
+    assert_eq!(report["results"][0]["changed"], json!(1));
+    assert_eq!(report["results"][1]["case"], json!("upper"));
+
+    let exported = workspace.path("cased.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("Hello World"), "title case rewrites the paragraph: {text}");
+    assert!(text.contains("## SECTION TITLE"), "upper case rewrites the heading: {text}");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    let unknown_case = edit(handle, &json!({ "operations": [{ "type": "block.setTextCase", "id": paragraph, "case": "wide" }] }))
+        .expect_err("unknown case");
+    assert_eq!(unknown_case.code, "session/argument-invalid");
+    let unknown_block =
+        edit(handle, &json!({ "operations": [{ "type": "block.setTextCase", "id": "node-999", "case": "upper" }] }))
+            .expect_err("unknown block");
+    assert_eq!(unknown_block.code, "object/not-found");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed casing consumes no revision");
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn table_set_footer_writes_and_clears_the_footer_band() {
     let workspace = Workspace::new("footer");
     let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");

@@ -340,6 +340,14 @@ export type EditOperation =
           readonly index: number;
       }
     | {
+          /** Sorts the list's top-level items by their text, keeping nested children attached. */
+          readonly type: 'list.sortItems';
+          /** List address such as `node-4`. */
+          readonly id: string;
+          /** Sorts ascending when true (the default); descending when false. */
+          readonly ascending?: boolean;
+      }
+    | {
           /** Nests one item under the item before it as a child list. */
           readonly type: 'list.indentItem';
           /** List address such as `node-4`. */
@@ -582,7 +590,7 @@ export interface EditOperationResult {
     readonly case?: 'upper' | 'lower' | 'title';
     /** Text runs rewritten by `block.setTextCase`. */
     readonly changed?: number;
-    /** List items created by `list.append` or `taskList.append`. */
+    /** List items created by `list.append` or `taskList.append`, or the top-level count sorted by `list.sortItems`. */
     readonly items?: number;
     /** Checked items created by `taskList.append`, or the state applied by `list.setItemTask`. */
     readonly checked?: number | boolean | null;
@@ -592,6 +600,8 @@ export interface EditOperationResult {
     readonly tags?: readonly string[] | null;
     /** Whether the list appended by `list.append` is ordered. */
     readonly ordered?: boolean;
+    /** Sort direction applied by `list.sortItems`. */
+    readonly ascending?: boolean;
     /** First number requested by `list.append` or applied by `list.setStart`; `null` when none was given or the list is unordered. */
     readonly start?: number | null;
     /** Item index addressed by `list.setItem`, `list.indentItem`, `list.unindentItem`, `list.insertItem`, `list.duplicateItem` or `list.removeItem`. */

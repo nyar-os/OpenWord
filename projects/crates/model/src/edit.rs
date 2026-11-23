@@ -26,6 +26,7 @@ enum Operation {
     SetItemTask { block: NodeId, item: usize, task: bool, checked: Option<bool> },
     MoveListItem { block: NodeId, item: usize, index: usize },
     MoveListItemTo { block: NodeId, item: usize, target: NodeId, index: usize },
+    SortListItems { block: NodeId, ascending: bool },
     IndentListItem { block: NodeId, item: usize },
     UnindentListItem { block: NodeId, item: usize },
     InsertListItem { block: NodeId, item: usize, text: String },
@@ -231,6 +232,10 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
                 index: required_index(operation, "index")?,
             })
         }
+        "list.sortItems" => Ok(Operation::SortListItems {
+            block: parse_block_id(operation)?,
+            ascending: operation.get("ascending").and_then(Value::as_bool).unwrap_or(true),
+        }),
         "list.indentItem" => Ok(Operation::IndentListItem {
             block: parse_block_id(operation)?,
             item: required_index(operation, "item")?,
@@ -736,6 +741,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
                 "item": item,
                 "index": index,
             }))
+        }
+        Operation::SortListItems { block, ascending } => {
+            let (label, items) = sort_list_items(graph, block, ascending)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "list.sortItems", "id": label, "items": items, "ascending": ascending }))
         }
         Operation::IndentListItem { block, item } => {
             let label = indent_list_item(graph, block, item)?;
@@ -2348,6 +2358,28 @@ fn move_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, index: usi
         renumber_items(items, base)?;
     }
     Ok(label)
+}
+
+/// Sorts a list's top-level items by their text and returns the list's address
+/// with the number of sorted items.
+///
+/// Each item keeps its check state and nested children, which move with it.
+/// Numbers compare numerically and other keys case-insensitively, with blank
+/// items trailing in both directions; an ordered list is renumbered from the
+/// number its first item carried.
+fn sort_list_items(graph: &mut DocumentGraph, id: NodeId, ascending: bool) -> Result<(String, usize), ServiceError> {
+    let label = resolve_list(graph, id, "`list.sortItems`")?;
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
+    let Block::List { ordered, items, .. } = &mut node.block
+    else {
+        unreachable!("the list was just checked");
+    };
+    let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
+    items.sort_by(|left, right| compare_row_keys(&inline_text(&left.content), &inline_text(&right.content), ascending));
+    if *ordered {
+        renumber_items(items, base)?;
+    }
+    Ok((label, items.len()))
 }
 
 /// Moves one item, with everything nested under it, into another list.

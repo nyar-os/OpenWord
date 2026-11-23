@@ -1976,6 +1976,52 @@ fn list_items_duplicate_with_their_nested_children() {
 }
 
 #[test]
+fn list_items_sort_by_text_and_keep_their_nested_children() {
+    let workspace = Workspace::new("listsort");
+    let created = create(&json!({ "title": "Sort" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "list.append", "items": ["Gamma", "alpha", "2", "10"], "ordered": true },
+    ] }))
+    .expect("append an ordered list");
+    edit(handle, &json!({ "operations": [{ "type": "list.indentItem", "id": "node-1", "item": 1 }] }))
+        .expect("nest alpha under Gamma");
+
+    let sorted = edit(handle, &json!({ "operations": [{ "type": "list.sortItems", "id": "node-1" }] }))
+        .expect("sort ascending");
+    assert_eq!(sorted["results"][0]["type"], json!("list.sortItems"));
+    assert_eq!(sorted["results"][0]["id"], json!("node-1"));
+    assert_eq!(sorted["results"][0]["items"], json!(3));
+    assert_eq!(sorted["results"][0]["ascending"], json!(true));
+
+    let exported = workspace.path("sorted.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(
+        text.contains("1. 2\n2. 10\n3. Gamma\n  1. alpha\n"),
+        "numbers sort numerically and the nested run travels with Gamma: {text}"
+    );
+
+    edit(handle, &json!({ "operations": [{ "type": "list.sortItems", "id": "node-1", "ascending": false }] }))
+        .expect("sort descending");
+    let exported = workspace.path("reversed.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(
+        text.contains("1. Gamma\n  1. alpha\n2. 10\n3. 2\n"),
+        "descending sort keeps the nested run attached: {text}"
+    );
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    let missing =
+        edit(handle, &json!({ "operations": [{ "type": "list.sortItems", "id": "node-9" }] })).expect_err("unknown list");
+    assert_eq!(missing.code, "object/not-found");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed sorts consume no revision");
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn ordered_list_item_edits_renumber_from_the_list_start() {
     let workspace = Workspace::new("ordereditems");
     let created = create(&json!({ "title": "Steps" })).expect("create");

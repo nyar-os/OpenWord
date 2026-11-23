@@ -26,6 +26,7 @@ enum Operation {
     SetItemTask { block: NodeId, item: usize, task: bool, checked: Option<bool> },
     MoveListItem { block: NodeId, item: usize, index: usize },
     IndentListItem { block: NodeId, item: usize },
+    UnindentListItem { block: NodeId, item: usize },
     InsertListItem { block: NodeId, item: usize, text: String },
     RemoveListItem { block: NodeId, item: usize },
     TaskList(Vec<(String, bool)>),
@@ -216,6 +217,10 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             index: required_index(operation, "index")?,
         }),
         "list.indentItem" => Ok(Operation::IndentListItem {
+            block: parse_block_id(operation)?,
+            item: required_index(operation, "item")?,
+        }),
+        "list.unindentItem" => Ok(Operation::UnindentListItem {
             block: parse_block_id(operation)?,
             item: required_index(operation, "item")?,
         }),
@@ -696,6 +701,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             let label = indent_list_item(graph, block, item)?;
             graph.bump_revision();
             Ok(json!({ "type": "list.indentItem", "id": label, "item": item }))
+        }
+        Operation::UnindentListItem { block, item } => {
+            let label = unindent_list_item(graph, block, item)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "list.unindentItem", "id": label, "item": item }))
         }
         Operation::InsertListItem { block, item, text } => {
             let label = insert_list_item(graph, block, item, text)?;
@@ -2150,6 +2160,54 @@ fn indent_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Resul
     };
     let host = items.get_mut(item - 1).expect("the previous item still exists");
     host.children.push(child);
+    Ok(label)
+}
+
+/// Lifts the nested items of one item back into its parent run.
+///
+/// The item's last child must be a nested list with the same marker style; its
+/// items move directly after the parent item and the now-empty nested list block
+/// is swept, so repeated indent and unindent round-trip. An ordered list is
+/// renumbered after the splice. Items without such a child are refused.
+fn unindent_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Result<String, ServiceError> {
+    let label = resolve_list(graph, id, "`list.unindentItem`")?;
+    let (ordered, child, lifted) = {
+        let node = graph.blocks.iter().find(|node| node.id == id).expect("the list was just resolved");
+        let Block::List { ordered, items, .. } = &node.block
+        else {
+            unreachable!("the list was just resolved");
+        };
+        let count = items.len();
+        if item >= count {
+            return Err(crate::invalid(format!("item {item} is outside the list's {count} items")));
+        }
+        let Some(child) = items[item].children.last().copied()
+        else {
+            return Err(crate::invalid(format!("item {item} has no nested list to lift")));
+        };
+        let nested = graph.blocks.iter().find(|node| node.id == child).and_then(|node| match &node.block {
+            Block::List { ordered: nested_ordered, items, .. } if *nested_ordered == *ordered => Some(items.clone()),
+            _ => None,
+        });
+        let Some(lifted) = nested
+        else {
+            return Err(crate::invalid(format!("item {item} has no nested list of the same marker style to lift")));
+        };
+        (*ordered, child, lifted)
+    };
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list is still there");
+    let Block::List { ordered, items, .. } = &mut node.block
+    else {
+        unreachable!("the list is still a list");
+    };
+    let host = items.get_mut(item).expect("the item still exists");
+    host.children.retain(|candidate| *candidate != child);
+    items.splice(item + 1..item + 1, lifted);
+    if *ordered {
+        let base = items.first().and_then(|entry| entry.number).unwrap_or(1);
+        renumber_items(items, base)?;
+    }
+    sweep(graph, child);
     Ok(label)
 }
 

@@ -336,6 +336,14 @@ export type EditOperation =
           readonly item: number;
       }
     | {
+          /** Lifts an item's nested list back into its parent run. */
+          readonly type: 'list.unindentItem';
+          /** List address such as `node-4`. */
+          readonly id: string;
+          /** Zero-based item index whose nested list is lifted; an item without one is refused. */
+          readonly item: number;
+      }
+    | {
           /** Inserts a new plain item before position `item` of an existing list. */
           readonly type: 'list.insertItem';
           /** List address such as `node-4`. */
@@ -542,7 +550,7 @@ export interface EditOperationResult {
     readonly ordered?: boolean;
     /** First number requested by `list.append` or applied by `list.setStart`; `null` when none was given or the list is unordered. */
     readonly start?: number | null;
-    /** Item index addressed by `list.setItem`, `list.indentItem`, `list.insertItem` or `list.removeItem`. */
+    /** Item index addressed by `list.setItem`, `list.indentItem`, `list.unindentItem`, `list.insertItem` or `list.removeItem`. */
     readonly item?: number;
     /** Language tag of a code block or the language applied by `metadata.set`; `null` when none was given. */
     readonly language?: string | null;

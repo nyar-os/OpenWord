@@ -1845,6 +1845,51 @@ fn list_items_indent_under_the_previous_sibling() {
 }
 
 #[test]
+fn list_items_unindent_back_into_the_parent_run() {
+    let workspace = Workspace::new("listunindent");
+    let created = create(&json!({ "title": "Outline" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "list.append", "items": ["Alpha", "Beta", "Gamma"] },
+        { "type": "list.append", "items": ["One", "Two", "Three"], "ordered": true },
+    ] }))
+    .expect("append a bullet list and an ordered list");
+
+    edit(handle, &json!({ "operations": [
+        { "type": "list.indentItem", "id": "node-1", "item": 1 },
+        { "type": "list.indentItem", "id": "node-2", "item": 1 },
+    ] }))
+    .expect("nest one item in each list");
+
+    let lifted = edit(handle, &json!({ "operations": [
+        { "type": "list.unindentItem", "id": "node-1", "item": 0 },
+        { "type": "list.unindentItem", "id": "node-2", "item": 0 },
+    ] }))
+    .expect("lift the nested items back");
+    assert_eq!(lifted["results"][0]["type"], json!("list.unindentItem"));
+    assert_eq!(lifted["results"][1]["item"], json!(0));
+
+    let exported = workspace.path("lifted.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("- Alpha\n- Beta\n- Gamma\n"), "the bullet run is flat again: {text}");
+    assert!(text.contains("1. One\n2. Two\n3. Three\n"), "the ordered run is flat and renumbered: {text}");
+
+    // Items with no nested list, and indexes outside the run, are refused
+    // before anything changes.
+    let before = revision_of(&summary(handle).expect("summary"));
+    let plain = edit(handle, &json!({ "operations": [{ "type": "list.unindentItem", "id": "node-1", "item": 0 }] }))
+        .expect_err("a flat item has nothing to lift");
+    assert_eq!(plain.code, "session/argument-invalid");
+    let out_of_range = edit(handle, &json!({ "operations": [{ "type": "list.unindentItem", "id": "node-1", "item": 7 }] }))
+        .expect_err("index outside the run");
+    assert_eq!(out_of_range.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn ordered_list_item_edits_renumber_from_the_list_start() {
     let workspace = Workspace::new("ordereditems");
     let created = create(&json!({ "title": "Steps" })).expect("create");

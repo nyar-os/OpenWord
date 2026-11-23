@@ -1452,3 +1452,71 @@ fn create_opens_a_template_and_stats_reports_the_document() {
 
     close(handle).expect("close");
 }
+
+#[test]
+fn quote_set_text_replaces_the_quote_content_in_place() {
+    let workspace = Workspace::new("quotetext");
+    let created = create(&json!({ "title": "Quote" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "quote.append", "text": "First draft." }] })).expect("append quote");
+
+    // The quote owns one paragraph child: node-1 is the child, node-2 the quote.
+    let changed = edit(handle, &json!({ "operations": [{ "type": "quote.setText", "id": "node-2", "text": "Revised quote." }] }))
+        .expect("rewrite quote");
+    assert_eq!(changed["results"][0]["type"], json!("quote.setText"));
+    assert_eq!(changed["results"][0]["id"], json!("node-2"));
+    assert_eq!(revision_of(&changed), 2);
+
+    let exported = workspace.path("revised.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("> Revised quote."), "new text is quoted: {text}");
+    assert!(!text.contains("First draft"), "old text is gone: {text}");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    let missing = edit(handle, &json!({ "operations": [{ "type": "quote.setText", "id": "node-999999", "text": "x" }] }))
+        .expect_err("unknown block");
+    assert_eq!(missing.code, "object/not-found");
+    let wrong = edit(handle, &json!({ "operations": [{ "type": "quote.setText", "id": "node-3", "text": "x" }] }))
+        .expect_err("the replacement paragraph child is not a quote");
+    assert_eq!(wrong.code, "session/argument-invalid");
+    let empty = edit(handle, &json!({ "operations": [{ "type": "quote.setText", "id": "node-2", "text": "" }] }))
+        .expect_err("empty text must fail");
+    assert_eq!(empty.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn code_set_text_rewrites_the_source_and_keeps_the_tag() {
+    let workspace = Workspace::new("codetext");
+    let created = create(&json!({ "title": "Code" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "code.append", "text": "let value = 1;", "language": "rust" }] }))
+        .expect("append code");
+
+    let changed = edit(handle, &json!({ "operations": [{ "type": "code.setText", "id": "node-1", "text": "let value = 2;" }] }))
+        .expect("rewrite code");
+    assert_eq!(changed["results"][0]["type"], json!("code.setText"));
+    assert_eq!(changed["results"][0]["id"], json!("node-1"));
+    assert_eq!(revision_of(&changed), 2);
+
+    let exported = workspace.path("rewritten.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("let value = 2;"), "new source is written: {text}");
+    assert!(!text.contains("let value = 1;"), "old source is gone: {text}");
+    assert!(text.contains("```rust"), "the tag survives: {text}");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    let missing = edit(handle, &json!({ "operations": [{ "type": "code.setText", "id": "node-999999", "text": "x" }] }))
+        .expect_err("unknown block");
+    assert_eq!(missing.code, "object/not-found");
+    let empty = edit(handle, &json!({ "operations": [{ "type": "code.setText", "id": "node-1", "text": "" }] }))
+        .expect_err("empty text must fail");
+    assert_eq!(empty.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}

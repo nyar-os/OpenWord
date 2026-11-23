@@ -22,8 +22,10 @@ enum Operation {
     SetListStart { list: NodeId, start: u32 },
     TaskList(Vec<(String, bool)>),
     Quote(String),
+    SetQuoteText { block: NodeId, text: String },
     Code { text: String, language: Option<String> },
     SetCodeLanguage { block: NodeId, language: Option<String> },
+    SetCodeText { block: NodeId, text: String },
     Table(Vec<Vec<String>>),
     SetCaption { table: usize, caption: Option<String> },
     SetTableHeader { table: usize, cells: Vec<String> },
@@ -160,6 +162,13 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             }
             Ok(Operation::Quote(text))
         }
+        "quote.setText" => {
+            let text = required_text(operation, "text")?;
+            if text.is_empty() {
+                return Err(crate::invalid("`quote.setText` needs a non-empty `text`"));
+            }
+            Ok(Operation::SetQuoteText { block: parse_block_id(operation)?, text })
+        }
         "code.append" => {
             let text = required_text(operation, "text")?;
             if text.is_empty() {
@@ -173,6 +182,13 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             block: parse_block_id(operation)?,
             language: optional_text(operation, "language")?.filter(|value| !value.trim().is_empty()),
         }),
+        "code.setText" => {
+            let text = required_text(operation, "text")?;
+            if text.is_empty() {
+                return Err(crate::invalid("`code.setText` needs a non-empty `text`"));
+            }
+            Ok(Operation::SetCodeText { block: parse_block_id(operation)?, text })
+        }
         "table.setHeader" => Ok(Operation::SetTableHeader {
             table: required_index(operation, "table")?,
             cells: required_strings(operation, "cells")?,
@@ -485,6 +501,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             append_quote(graph, text);
             Ok(json!({ "type": "quote.append" }))
         }
+        Operation::SetQuoteText { block, text } => {
+            let label = set_quote_text(graph, block, text)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "quote.setText", "id": label }))
+        }
         Operation::Code { text, language } => {
             append_block(graph, Block::Code { language: language.clone(), content: text });
             Ok(json!({ "type": "code.append", "language": language }))
@@ -493,6 +514,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             let label = set_code_language(graph, block, language.clone())?;
             graph.bump_revision();
             Ok(json!({ "type": "code.setLanguage", "id": label, "language": language }))
+        }
+        Operation::SetCodeText { block, text } => {
+            let label = set_code_text(graph, block, text)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "code.setText", "id": label }))
         }
         Operation::Table(rows) => {
             append_table(graph, rows);
@@ -1337,6 +1363,37 @@ fn set_heading_level(graph: &mut DocumentGraph, id: NodeId, level: u8) -> Result
     }
 }
 
+/// Replaces the content of one quote with a single paragraph and returns its address.
+///
+/// Only the content changes; the quote's id and position stay as they are. The
+/// previous children are physically removed, so a quote that held several blocks
+/// collapses to the one new paragraph.
+fn set_quote_text(graph: &mut DocumentGraph, id: NodeId, text: String) -> Result<String, ServiceError> {
+    if !graph.blocks.iter().any(|node| node.id == id) {
+        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+    }
+    let label =
+        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let old_children = {
+        let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+        match &mut node.block {
+            Block::Quote { children } => std::mem::take(children),
+            _ => return Err(crate::invalid("`quote.setText` needs a quote; the addressed block is not one")),
+        }
+    };
+    let child = graph.push_block(Block::Paragraph { content: vec![Inline::Text { text }] });
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the quote was just resolved");
+    let Block::Quote { children } = &mut node.block
+    else {
+        unreachable!("the block was checked to be a quote");
+    };
+    children.push(child);
+    for old in old_children {
+        sweep(graph, old);
+    }
+    Ok(label)
+}
+
 /// Changes the language tag of one code block and returns its address.
 ///
 /// Only the tag changes; the source text and position stay as they are. A
@@ -1355,6 +1412,23 @@ fn set_code_language(graph: &mut DocumentGraph, id: NodeId, language: Option<Str
         }
         _ => Err(crate::invalid("`code.setLanguage` needs a code block; the addressed block is not one")),
     }
+}
+
+/// Replaces the source text of one code block and returns its address.
+///
+/// Only the content changes; the id, position and language tag stay as they are.
+fn set_code_text(graph: &mut DocumentGraph, id: NodeId, text: String) -> Result<String, ServiceError> {
+    if !graph.blocks.iter().any(|node| node.id == id) {
+        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+    }
+    let label =
+        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+    match &mut node.block {
+        Block::Code { content, .. } => *content = text,
+        _ => return Err(crate::invalid("`code.setText` needs a code block; the addressed block is not one")),
+    }
+    Ok(label)
 }
 
 /// Switches one existing list between bullets and numbers and returns its address.

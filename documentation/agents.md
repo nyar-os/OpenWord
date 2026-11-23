@@ -122,8 +122,10 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `list.setStart` | `id` (`node-N`), `start` (positive integer); renumbers an ordered list from `start`, bullets are refused |
 | `taskList.append` | `items: (string \| { text, checked? })[]`; exports keep `[ ]`/`[x]` |
 | `quote.append` | `text` (non-empty) |
+| `quote.setText` | `id` (`node-N`), `text` (non-empty); replaces the quote's content with one paragraph, keeping its id and position |
 | `code.append` | `text` (non-empty), `language?` |
 | `code.setLanguage` | `id` (`node-N`), `language?`; changes only the tag, an omitted or empty tag clears it |
+| `code.setText` | `id` (`node-N`), `text` (non-empty); replaces only the source text, keeping the tag and position |
 | `table.append` | `rows: string[][]` (at least one row and cell) |
 | `table.setCaption` | `table`, `caption?`; omit or `null` clears, a present caption is trimmed and must not be blank |
 | `table.setHeader` | `table` (zero-based), `cells: string[]`; replaces the header row, an empty array removes it |

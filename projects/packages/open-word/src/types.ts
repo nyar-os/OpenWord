@@ -281,6 +281,14 @@ export type EditOperation =
           readonly items: readonly (string | { readonly text: string; readonly checked?: boolean })[];
       }
     | { readonly type: 'quote.append'; readonly text: string }
+    | {
+          /** Replaces a quote's content with one paragraph, keeping its id and position. */
+          readonly type: 'quote.setText';
+          /** Quote address such as `node-2`. */
+          readonly id: string;
+          /** New quote text; must be non-empty. */
+          readonly text: string;
+      }
     | { readonly type: 'code.append'; readonly text: string; readonly language?: string }
     | {
           /** Changes the language tag of an existing code block, keeping its source text. */
@@ -289,6 +297,14 @@ export type EditOperation =
           readonly id: string;
           /** New tag; omit or use an empty string to clear it. */
           readonly language?: string;
+      }
+    | {
+          /** Replaces the source text of an existing code block, keeping its language tag. */
+          readonly type: 'code.setText';
+          /** Code block address such as `node-5`. */
+          readonly id: string;
+          /** New source text; must be non-empty. */
+          readonly text: string;
       }
     | { readonly type: 'table.append'; readonly rows: readonly (readonly string[])[] }
     | {

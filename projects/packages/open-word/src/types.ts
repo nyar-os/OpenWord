@@ -276,6 +276,34 @@ export type EditOperation =
           readonly start: number;
       }
     | {
+          /** Replaces one item's text, keeping its number, nesting and check state. */
+          readonly type: 'list.setItem';
+          /** List address such as `node-4`. */
+          readonly id: string;
+          /** Zero-based item index inside the list. */
+          readonly item: number;
+          /** New item text; must not be blank. */
+          readonly text: string;
+      }
+    | {
+          /** Inserts a new plain item before position `item` of an existing list. */
+          readonly type: 'list.insertItem';
+          /** List address such as `node-4`. */
+          readonly id: string;
+          /** Zero-based insertion point; equal to the item count to append at the end. */
+          readonly item: number;
+          /** New item text; must not be blank. */
+          readonly text: string;
+      }
+    | {
+          /** Removes one item, with everything nested under it, from an existing list. */
+          readonly type: 'list.removeItem';
+          /** List address such as `node-4`. */
+          readonly id: string;
+          /** Zero-based item index; the last item cannot be removed. */
+          readonly item: number;
+      }
+    | {
           readonly type: 'taskList.append';
           /** A string item is unchecked; an object may set `checked`. */
           readonly items: readonly (string | { readonly text: string; readonly checked?: boolean })[];
@@ -396,6 +424,8 @@ export interface EditOperationResult {
     readonly ordered?: boolean;
     /** First number requested by `list.append` or applied by `list.setStart`; `null` when none was given or the list is unordered. */
     readonly start?: number | null;
+    /** Item index addressed by `list.setItem`, `list.insertItem` or `list.removeItem`. */
+    readonly item?: number;
     /** Language tag of the code block appended by `code.append`; `null` when none was given. */
     readonly language?: string | null;
     /** Table index addressed by a table operation. */

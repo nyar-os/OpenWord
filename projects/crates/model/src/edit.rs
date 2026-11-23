@@ -20,6 +20,9 @@ enum Operation {
     List { ordered: bool, items: Vec<String>, start: Option<u32> },
     SetListOrdered { list: NodeId, ordered: bool },
     SetListStart { list: NodeId, start: u32 },
+    SetListItem { block: NodeId, item: usize, text: String },
+    InsertListItem { block: NodeId, item: usize, text: String },
+    RemoveListItem { block: NodeId, item: usize },
     TaskList(Vec<(String, bool)>),
     Quote(String),
     SetQuoteText { block: NodeId, text: String },
@@ -155,6 +158,24 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             }
             Ok(Operation::SetListStart { list: parse_block_id(operation)?, start: start as u32 })
         }
+        "list.setItem" => {
+            let text = required_text(operation, "text")?;
+            if text.trim().is_empty() {
+                return Err(crate::invalid("`list.setItem` needs a non-empty `text`"));
+            }
+            Ok(Operation::SetListItem { block: parse_block_id(operation)?, item: required_index(operation, "item")?, text })
+        }
+        "list.insertItem" => {
+            let text = required_text(operation, "text")?;
+            if text.trim().is_empty() {
+                return Err(crate::invalid("`list.insertItem` needs a non-empty `text`"));
+            }
+            Ok(Operation::InsertListItem { block: parse_block_id(operation)?, item: required_index(operation, "item")?, text })
+        }
+        "list.removeItem" => Ok(Operation::RemoveListItem {
+            block: parse_block_id(operation)?,
+            item: required_index(operation, "item")?,
+        }),
         "quote.append" => {
             let text = required_text(operation, "text")?;
             if text.is_empty() {
@@ -490,6 +511,21 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             let label = set_list_start(graph, list, start)?;
             graph.bump_revision();
             Ok(json!({ "type": "list.setStart", "id": label, "start": start }))
+        }
+        Operation::SetListItem { block, item, text } => {
+            let label = set_list_item(graph, block, item, text)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "list.setItem", "id": label, "item": item }))
+        }
+        Operation::InsertListItem { block, item, text } => {
+            let label = insert_list_item(graph, block, item, text)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "list.insertItem", "id": label, "item": item }))
+        }
+        Operation::RemoveListItem { block, item } => {
+            let label = remove_list_item(graph, block, item)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "list.removeItem", "id": label, "item": item }))
         }
         Operation::TaskList(items) => {
             let count = items.len();
@@ -1453,6 +1489,111 @@ fn set_list_ordered(graph: &mut DocumentGraph, id: NodeId, ordered: bool) -> Res
         }
         _ => Err(crate::invalid("`list.setOrdered` needs a list; the addressed block is not one")),
     }
+}
+
+/// Checks the addressed block is a list and returns its address.
+///
+/// Unknown ids report `object/not-found`; other block types are refused because
+/// items only live inside lists.
+fn resolve_list(graph: &DocumentGraph, id: NodeId, operation: &str) -> Result<String, ServiceError> {
+    let Some(node) = graph.blocks.iter().find(|node| node.id == id) else {
+        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+    };
+    if !matches!(node.block, Block::List { .. }) {
+        return Err(crate::invalid(format!("`{operation}` needs a list; the addressed block is not one")));
+    }
+    Ok(document_ir::block_address(&node.block, id))
+}
+
+/// Rewrites an ordered list's numbers as one consecutive run from `base`.
+///
+/// The item count decides whether the range fits in `u32`; unordered lists keep
+/// their items untouched because their items carry no numbers.
+fn renumber_items(items: &mut [ListItem], base: u32) -> Result<(), ServiceError> {
+    for (index, item) in items.iter_mut().enumerate() {
+        let offset = u32::try_from(index).unwrap_or(u32::MAX);
+        let Some(number) = base.checked_add(offset) else {
+            return Err(crate::invalid(format!("editing this list would push its numbering beyond the {} maximum", u32::MAX)));
+        };
+        item.number = Some(number);
+    }
+    Ok(())
+}
+
+/// Replaces one list item's text with a single plain-text inline and returns
+/// the list's address.
+///
+/// Only the text changes; the item keeps its number, nesting and check state.
+fn set_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, text: String) -> Result<String, ServiceError> {
+    let label = resolve_list(graph, id, "`list.setItem`")?;
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
+    let Block::List { items, .. } = &mut node.block
+    else {
+        unreachable!("the list was just checked");
+    };
+    let count = items.len();
+    let target = items
+        .get_mut(item)
+        .ok_or_else(|| crate::invalid(format!("item {item} is outside the list's {count} items")))?;
+    target.content = vec![Inline::Text { text }];
+    Ok(label)
+}
+
+/// Inserts a new plain item before position `item` and returns the list's address.
+///
+/// An ordered list is renumbered so the run stays consecutive, keeping the
+/// number its first item carried before the insertion.
+fn insert_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, text: String) -> Result<String, ServiceError> {
+    let label = resolve_list(graph, id, "`list.insertItem`")?;
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
+    let Block::List { ordered, items, .. } = &mut node.block
+    else {
+        unreachable!("the list was just checked");
+    };
+    if item > items.len() {
+        return Err(crate::invalid(format!("item {item} is outside the list's {} insertion points", items.len())));
+    }
+    let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
+    items.insert(
+        item,
+        ListItem { content: vec![Inline::Text { text }], children: Vec::new(), number: None, is_task: false, is_checked: None },
+    );
+    if *ordered {
+        renumber_items(items, base)?;
+    }
+    Ok(label)
+}
+
+/// Removes one item, with everything nested under it, and returns the list's address.
+///
+/// An ordered list is renumbered so the run stays consecutive. The last item
+/// cannot be removed because that would leave an empty list block; remove the
+/// whole block instead.
+fn remove_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Result<String, ServiceError> {
+    let label = resolve_list(graph, id, "`list.removeItem`")?;
+    let removed = {
+        let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
+        let Block::List { ordered, items, .. } = &mut node.block
+        else {
+            unreachable!("the list was just checked");
+        };
+        if item >= items.len() {
+            return Err(crate::invalid(format!("item {item} is outside the list's {} items", items.len())));
+        }
+        if items.len() == 1 {
+            return Err(crate::invalid("`list.removeItem` would leave the list empty; remove the whole list block instead"));
+        }
+        let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
+        let removed = items.remove(item);
+        if *ordered {
+            renumber_items(items, base)?;
+        }
+        removed
+    };
+    for child in removed.children {
+        sweep(graph, child);
+    }
+    Ok(label)
 }
 
 /// Renumbers one ordered list from `start` and returns its address.

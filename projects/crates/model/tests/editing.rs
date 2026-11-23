@@ -1520,3 +1520,103 @@ fn code_set_text_rewrites_the_source_and_keeps_the_tag() {
 
     close(handle).expect("close");
 }
+
+#[test]
+fn list_item_edits_replace_insert_and_remove_items_in_place() {
+    let workspace = Workspace::new("listitems");
+    let created = create(&json!({ "title": "Items" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "list.append", "items": ["Alpha", "Beta"] },
+        { "type": "taskList.append", "items": [{ "text": "Write spec", "checked": true }, "Review"] },
+    ] }))
+    .expect("append a bullet list and a task list");
+    // node-1 is the bullet list, node-2 the task list.
+
+    let renamed = edit(handle, &json!({ "operations": [{ "type": "list.setItem", "id": "node-1", "item": 0, "text": "Alpha edited" }] }))
+        .expect("rename the first item");
+    assert_eq!(renamed["results"][0]["type"], json!("list.setItem"));
+    assert_eq!(renamed["results"][0]["id"], json!("node-1"));
+    assert_eq!(renamed["results"][0]["item"], json!(0));
+    assert_eq!(revision_of(&renamed), 3);
+
+    // The check state survives a text rewrite.
+    edit(handle, &json!({ "operations": [{ "type": "list.setItem", "id": "node-2", "item": 0, "text": "Write the spec" }] }))
+        .expect("rewrite the task");
+
+    edit(handle, &json!({ "operations": [{ "type": "list.insertItem", "id": "node-1", "item": 1, "text": "Gamma" }] }))
+        .expect("insert before Beta");
+    let exported = workspace.path("items.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    let position = |marker: &str| text.find(marker).unwrap_or_else(|| panic!("missing {marker:?} in: {text}"));
+    assert!(text.contains("- Alpha edited") && text.contains("- Gamma") && text.contains("- Beta"), "bullet run: {text}");
+    assert!(position("- Alpha edited") < position("- Gamma"), "insertion honours the index: {text}");
+    assert!(position("- Gamma") < position("- Beta"), "insertion honours the index: {text}");
+    assert!(text.contains("- [x] Write the spec"), "the check state survives: {text}");
+    assert!(text.contains("- [ ] Review"), "the untouched task keeps its marker: {text}");
+
+    let removed = edit(handle, &json!({ "operations": [{ "type": "list.removeItem", "id": "node-1", "item": 1 }] }))
+        .expect("remove Gamma");
+    assert_eq!(removed["results"][0]["type"], json!("list.removeItem"));
+    assert_eq!(removed["results"][0]["item"], json!(1));
+    assert_eq!(revision_of(&removed), 6);
+    export(handle, "md", &workspace.path("removed.md"), false).expect("export markdown");
+    let text = fs::read_to_string(workspace.path("removed.md")).expect("read markdown");
+    assert!(!text.contains("Gamma"), "the removed item is gone: {text}");
+    assert!(text.contains("- Alpha edited") && text.contains("- Beta"), "the neighbours stay: {text}");
+
+    // A heading and a one-item list exercise the refusal paths; the heading is
+    // addressed through its `section-N` alias and node-4 is the fresh one-item list.
+    edit(handle, &json!({ "operations": [{ "type": "heading.append", "level": 2, "text": "Note" }] })).expect("append a heading");
+    let seeded = summary(handle).expect("summary");
+    let heading_id = seeded["sections"][0]["id"].as_str().expect("heading id").to_owned();
+    edit(handle, &json!({ "operations": [{ "type": "list.append", "items": ["Solo"] }] })).expect("append a one-item list");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    let missing = edit(handle, &json!({ "operations": [{ "type": "list.setItem", "id": "node-999999", "item": 0, "text": "x" }] }))
+        .expect_err("unknown block");
+    assert_eq!(missing.code, "object/not-found");
+    let not_a_list = edit(handle, &json!({ "operations": [{ "type": "list.setItem", "id": heading_id, "item": 0, "text": "x" }] }))
+        .expect_err("a paragraph is not a list");
+    assert_eq!(not_a_list.code, "session/argument-invalid");
+    let out_of_range = edit(handle, &json!({ "operations": [{ "type": "list.setItem", "id": "node-4", "item": 9, "text": "x" }] }))
+        .expect_err("index outside the run");
+    assert_eq!(out_of_range.code, "session/argument-invalid");
+    let last_item = edit(handle, &json!({ "operations": [{ "type": "list.removeItem", "id": "node-4", "item": 0 }] }))
+        .expect_err("the last item cannot be removed");
+    assert_eq!(last_item.code, "session/argument-invalid");
+    let blank = edit(handle, &json!({ "operations": [{ "type": "list.setItem", "id": "node-4", "item": 0, "text": "  " }] }))
+        .expect_err("blank text must fail");
+    assert_eq!(blank.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn ordered_list_item_edits_renumber_from_the_list_start() {
+    let workspace = Workspace::new("ordereditems");
+    let created = create(&json!({ "title": "Steps" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "list.append", "items": ["One", "Two"], "ordered": true }] }))
+        .expect("append an ordered list");
+
+    // Inserting at the front keeps the start value, so the run stays consecutive.
+    edit(handle, &json!({ "operations": [{ "type": "list.insertItem", "id": "node-1", "item": 0, "text": "Zero" }] }))
+        .expect("insert at the front");
+    edit(handle, &json!({ "operations": [{ "type": "list.setStart", "id": "node-1", "start": 7 }] })).expect("set start");
+    edit(handle, &json!({ "operations": [{ "type": "list.insertItem", "id": "node-1", "item": 3, "text": "Ten" }] }))
+        .expect("insert at the end");
+    let removed = edit(handle, &json!({ "operations": [{ "type": "list.removeItem", "id": "node-1", "item": 0 }] }))
+        .expect("remove the front item");
+    assert_eq!(revision_of(&removed), 5);
+
+    let exported = workspace.path("steps.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("7. One") && text.contains("8. Two") && text.contains("9. Ten"), "consecutive numbering from the start: {text}");
+    assert!(!text.contains("Zero"), "the removed item is gone: {text}");
+
+    close(handle).expect("close");
+}

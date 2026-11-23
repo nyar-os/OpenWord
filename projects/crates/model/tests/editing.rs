@@ -1798,6 +1798,53 @@ fn task_items_toggle_and_list_items_move_in_place() {
 }
 
 #[test]
+fn list_items_indent_under_the_previous_sibling() {
+    let workspace = Workspace::new("listindent");
+    let created = create(&json!({ "title": "Outline" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "list.append", "items": ["Alpha", "Beta", "Gamma"] },
+        { "type": "list.append", "items": ["One", "Two", "Three"], "ordered": true },
+    ] }))
+    .expect("append a bullet list and an ordered list");
+    // node-1 is the bullet list, node-2 the ordered list.
+
+    let nested = edit(handle, &json!({ "operations": [{ "type": "list.indentItem", "id": "node-1", "item": 1 }] }))
+        .expect("nest Beta under Alpha");
+    assert_eq!(nested["results"][0]["type"], json!("list.indentItem"));
+    assert_eq!(nested["results"][0]["id"], json!("node-1"));
+    assert_eq!(nested["results"][0]["item"], json!(1));
+
+    // A second indent joins the nested run under the same parent instead of
+    // opening a sibling list.
+    edit(handle, &json!({ "operations": [{ "type": "list.indentItem", "id": "node-1", "item": 1 }] }))
+        .expect("nest Gamma under Alpha");
+
+    // An ordered list renumbers the parent run and restarts the nested run at 1.
+    edit(handle, &json!({ "operations": [{ "type": "list.indentItem", "id": "node-2", "item": 1 }] }))
+        .expect("nest Two under One");
+
+    let exported = workspace.path("outline.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("- Alpha\n  - Beta\n  - Gamma\n"), "one nested run under Alpha: {text}");
+    assert!(text.contains("1. One\n  1. Two\n2. Three\n"), "ordered runs renumber on both levels: {text}");
+
+    // The first item has no previous sibling and an index outside the run is
+    // refused before anything changes.
+    let before = revision_of(&summary(handle).expect("summary"));
+    let first = edit(handle, &json!({ "operations": [{ "type": "list.indentItem", "id": "node-1", "item": 0 }] }))
+        .expect_err("the first item cannot nest");
+    assert_eq!(first.code, "session/argument-invalid");
+    let out_of_range = edit(handle, &json!({ "operations": [{ "type": "list.indentItem", "id": "node-1", "item": 9 }] }))
+        .expect_err("index outside the run");
+    assert_eq!(out_of_range.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn ordered_list_item_edits_renumber_from_the_list_start() {
     let workspace = Workspace::new("ordereditems");
     let created = create(&json!({ "title": "Steps" })).expect("create");

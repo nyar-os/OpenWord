@@ -25,6 +25,7 @@ enum Operation {
     SetItemChecked { block: NodeId, item: usize, checked: bool },
     SetItemTask { block: NodeId, item: usize, task: bool, checked: Option<bool> },
     MoveListItem { block: NodeId, item: usize, index: usize },
+    IndentListItem { block: NodeId, item: usize },
     InsertListItem { block: NodeId, item: usize, text: String },
     RemoveListItem { block: NodeId, item: usize },
     TaskList(Vec<(String, bool)>),
@@ -213,6 +214,10 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             block: parse_block_id(operation)?,
             item: required_index(operation, "item")?,
             index: required_index(operation, "index")?,
+        }),
+        "list.indentItem" => Ok(Operation::IndentListItem {
+            block: parse_block_id(operation)?,
+            item: required_index(operation, "item")?,
         }),
         "list.insertItem" => {
             let text = required_text(operation, "text")?;
@@ -686,6 +691,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             let label = move_list_item(graph, block, item, index)?;
             graph.bump_revision();
             Ok(json!({ "type": "list.moveItem", "id": label, "item": item, "index": index }))
+        }
+        Operation::IndentListItem { block, item } => {
+            let label = indent_list_item(graph, block, item)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "list.indentItem", "id": label, "item": item }))
         }
         Operation::InsertListItem { block, item, text } => {
             let label = insert_list_item(graph, block, item, text)?;
@@ -2072,6 +2082,74 @@ fn move_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, index: usi
     if *ordered {
         renumber_items(items, base)?;
     }
+    Ok(label)
+}
+
+/// Nests one item under the item before it and returns the list's address.
+///
+/// The IR stores nesting as child blocks, so the moved item leaves the parent
+/// run and becomes an item of a nested list attached to its new parent's
+/// children. When the previous item already ends with a nested list of the same
+/// marker style the item joins that list, keeping one nested run per level. An
+/// ordered list is renumbered on both levels so each run stays consecutive. The
+/// first item has no previous sibling and is refused.
+fn indent_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Result<String, ServiceError> {
+    let label = resolve_list(graph, id, "`list.indentItem`")?;
+    if item == 0 {
+        return Err(crate::invalid("`list.indentItem` needs `item` to be at least 1; the first item has no previous sibling"));
+    }
+    let (ordered, removed, host) = {
+        let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
+        let Block::List { ordered, items, .. } = &mut node.block
+        else {
+            unreachable!("the list was just resolved");
+        };
+        let count = items.len();
+        if item >= count {
+            return Err(crate::invalid(format!("item {item} is outside the list's {count} items")));
+        }
+        let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
+        let removed = items.remove(item);
+        if *ordered {
+            renumber_items(items, base)?;
+        }
+        // The item before the moved one becomes its parent after removal.
+        let host = items.get(item - 1).and_then(|entry| entry.children.last().copied());
+        (*ordered, removed, host)
+    };
+    let nested = host.filter(|child| {
+        graph
+            .blocks
+            .iter()
+            .find(|node| node.id == *child)
+            .is_some_and(|node| matches!(&node.block, Block::List { ordered: nested, .. } if *nested == ordered))
+    });
+    if let Some(child) = nested {
+        let node = graph.blocks.iter_mut().find(|node| node.id == child).expect("the nested list was just resolved");
+        let Block::List { items, .. } = &mut node.block
+        else {
+            unreachable!("the nested list was just resolved");
+        };
+        let base = items.first().and_then(|entry| entry.number).unwrap_or(1);
+        items.push(removed);
+        if ordered {
+            renumber_items(items, base)?;
+        }
+        return Ok(label);
+    }
+    // A fresh nested run restarts at 1, so ordered items keep consecutive numbers.
+    let mut nested = removed;
+    if ordered {
+        nested.number = Some(1);
+    }
+    let child = graph.push_block(Block::List { ordered, items: vec![nested] });
+    let parent = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list is still there");
+    let Block::List { items, .. } = &mut parent.block
+    else {
+        unreachable!("the list is still a list");
+    };
+    let host = items.get_mut(item - 1).expect("the previous item still exists");
+    host.children.push(child);
     Ok(label)
 }
 

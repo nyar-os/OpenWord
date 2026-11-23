@@ -125,6 +125,7 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `list.setItemChecked` | `id` (`node-N`), `item` (zero-based), `checked`; sets a task item's check state, refuses a bullet or numbered list |
 | `list.setItemTask` | `id` (`node-N`), `item` (zero-based), `task`, `checked?`; makes an item a task (default unchecked) or clears the task marker, keeping its text and children |
 | `list.moveItem` | `id` (`node-N`), `item` (zero-based), `index` (zero-based target position inside the list); moves an item with its text, check state and children, renumbering an ordered list from its first number |
+| `list.indentItem` | `id` (`node-N`), `item` (zero-based, at least `1`); nests the item under the item before it as a child list, joining an existing nested run of the same marker style and renumbering ordered runs on both levels; the first item is refused |
 | `list.insertItem` | `id` (`node-N`), `item` (zero-based, up to the item count), `text` (non-blank); inserts a plain item, renumbering an ordered list from the number its first item carried |
 | `list.removeItem` | `id` (`node-N`), `item` (zero-based); removes the item and everything nested under it, renumbers an ordered list, refuses to empty the list |
 | `taskList.append` | `items: (string \| { text, checked? })[]`; exports keep `[ ]`/`[x]` |

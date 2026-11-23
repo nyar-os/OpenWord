@@ -2072,6 +2072,69 @@ fn metadata_set_writes_language_and_tags() {
 }
 
 #[test]
+fn table_rows_sort_by_numeric_and_text_keys() {
+    let workspace = Workspace::new("tablesort");
+    let created = create(&json!({ "title": "Scores" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "table.append", "rows": [
+            ["Name", "Score"],
+            ["Beta", "2"],
+            ["Alpha", "10"],
+            ["Gamma", ""],
+        ] },
+    ] }))
+    .expect("seed the table");
+
+    let sorted = edit(handle, &json!({ "operations": [
+        { "type": "table.sortRows", "table": 0, "column": 1 },
+    ] }))
+    .expect("sort by score");
+    assert_eq!(sorted["results"][0]["type"], json!("table.sortRows"));
+
+    let by_score = workspace.path("by-score.md");
+    export(handle, "md", &by_score, false).expect("export markdown");
+    let text = fs::read_to_string(&by_score).expect("read markdown");
+    let beta = text.find("Beta").expect("Beta");
+    let alpha = text.find("Alpha").expect("Alpha");
+    let gamma = text.find("Gamma").expect("Gamma");
+    assert!(text.contains("| Name | Score |"), "the header band stays in place: {text}");
+    assert!(beta < alpha && alpha < gamma, "numeric order with blanks trailing: {text}");
+
+    edit(handle, &json!({ "operations": [
+        { "type": "table.sortRows", "table": 0, "column": 0, "ascending": false },
+    ] }))
+    .expect("sort by name descending");
+    let by_name = workspace.path("by-name.md");
+    export(handle, "md", &by_name, false).expect("export markdown");
+    let text = fs::read_to_string(&by_name).expect("read markdown");
+    let beta = text.find("Beta").expect("Beta");
+    let alpha = text.find("Alpha").expect("Alpha");
+    let gamma = text.find("Gamma").expect("Gamma");
+    assert!(gamma < beta && beta < alpha, "text order descends case-insensitively: {text}");
+
+    // A vertical merge would describe the wrong rows after a reorder, so it is
+    // refused without consuming a revision.
+    edit(handle, &json!({ "operations": [
+        { "type": "table.setCellSpan", "table": 0, "row": 1, "column": 0, "colspan": 1, "rowspan": 2 },
+    ] }))
+    .expect("merge two rows");
+    let before = revision_of(&summary(handle).expect("summary"));
+    let merged = edit(handle, &json!({ "operations": [
+        { "type": "table.sortRows", "table": 0, "column": 0 },
+    ] }))
+    .expect_err("vertical merges block sorting");
+    assert_eq!(merged.code, "session/argument-invalid");
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    let missing = edit(handle, &json!({ "operations": [{ "type": "table.sortRows", "table": 9, "column": 0 }] }))
+        .expect_err("unknown table");
+    assert_eq!(missing.code, "session/argument-invalid");
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn table_bands_accept_multiple_header_and_footer_rows() {
     let workspace = Workspace::new("bands");
     let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");

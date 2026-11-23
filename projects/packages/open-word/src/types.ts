@@ -464,6 +464,16 @@ export type EditOperation =
           /** Rows covered, at least 1. */
           readonly rowspan: number;
       }
+    | {
+          /** Sorts the body rows by one cell column; header and footer bands stay put. */
+          readonly type: 'table.sortRows';
+          /** Zero-based table index in document order. */
+          readonly table: number;
+          /** Zero-based cell index inside each body row. */
+          readonly column: number;
+          /** Ascending when true, which is the default. */
+          readonly ascending?: boolean;
+      }
     | { readonly type: 'table.setCell'; readonly table: number; readonly row: number; readonly column: number; readonly text: string }
     | { readonly type: 'table.insertRow'; readonly table: number; readonly row: number; readonly cells?: readonly string[] }
     | { readonly type: 'table.deleteRow'; readonly table: number; readonly row: number }

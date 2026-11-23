@@ -42,6 +42,7 @@ enum Operation {
     SetTableHeaderRows { table: usize, rows: Vec<Vec<String>> },
     SetTableFooterRows { table: usize, rows: Vec<Vec<String>> },
     SetCellSpan { table: usize, row: usize, column: usize, colspan: u32, rowspan: u32 },
+    SortTableRows { table: usize, column: usize, ascending: bool },
     Metadata { title: Option<String>, author: Option<String>, language: Option<String>, tags: Option<Vec<String>> },
     ReplaceText(replace::Request),
     RemoveBlock { id: NodeId },
@@ -311,6 +312,11 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             }
             Ok(Operation::SetCaption { table: required_index(operation, "table")?, caption })
         }
+        "table.sortRows" => Ok(Operation::SortTableRows {
+            table: required_index(operation, "table")?,
+            column: required_index(operation, "column")?,
+            ascending: operation.get("ascending").and_then(Value::as_bool).unwrap_or(true),
+        }),
         "metadata.set" => {
             let title = optional_text(operation, "title")?;
             let author = optional_text(operation, "author")?;
@@ -818,6 +824,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
                 "colspan": colspan,
                 "rowspan": rowspan,
             }))
+        }
+        Operation::SortTableRows { table, column, ascending } => {
+            sort_table_rows(graph, table, column, ascending)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.sortRows", "table": table, "column": column, "ascending": ascending }))
         }
         Operation::SetCell { table, row, column, text } => {
             set_cell(graph, table, row, column, text)?;
@@ -1368,6 +1379,97 @@ fn set_caption(graph: &mut DocumentGraph, table: usize, caption: Option<String>)
     };
     *current = caption;
     Ok(())
+}
+
+/// Sorts the body rows of one table by the text of one cell column.
+///
+/// Numeric keys sort numerically and everything else sorts case-insensitively;
+/// blank keys always trail, so an empty cell never jumps to the top when the
+/// order is descending. Vertical merges are refused because rowspans would
+/// describe the wrong rows after a reorder; horizontal spans are fine. The
+/// header and footer bands keep their positions.
+fn sort_table_rows(graph: &mut DocumentGraph, table: usize, column: usize, ascending: bool) -> Result<(), ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let body = {
+        let node = graph.blocks.iter().find(|node| node.id == table_id).expect("the table was just resolved");
+        let Block::Table { body, .. } = &node.block
+        else {
+            unreachable!("the id was filtered to a table block");
+        };
+        if body.iter().any(|row| row.cells.iter().any(|cell| cell.rowspan > 1)) {
+            return Err(crate::invalid("`table.sortRows` cannot reorder rows that contain vertical merges"));
+        }
+        body.clone()
+    };
+    let mut keyed = body
+        .into_iter()
+        .map(|row| {
+            let key = row.cells.get(column).map(|cell| cell_text(graph, cell)).unwrap_or_default();
+            (key, row)
+        })
+        .collect::<Vec<_>>();
+    keyed.sort_by(|left, right| compare_row_keys(&left.0, &right.0, ascending));
+    let sorted = keyed.into_iter().map(|(_, row)| row).collect::<Vec<_>>();
+    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table is still there");
+    let Block::Table { body, .. } = &mut node.block
+    else {
+        unreachable!("the table is still a table");
+    };
+    *body = sorted;
+    Ok(())
+}
+
+/// Reads the visible text of one table cell for sorting.
+fn cell_text(graph: &DocumentGraph, cell: &TableCell) -> String {
+    cell.children
+        .iter()
+        .map(|child| block_text(graph, *child))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_owned()
+}
+
+/// Reads the plain text of one block, recursing through quotations.
+fn block_text(graph: &DocumentGraph, id: NodeId) -> String {
+    let Some(node) = graph.blocks.iter().find(|node| node.id == id)
+    else {
+        return String::new();
+    };
+    match &node.block {
+        Block::Paragraph { content } => inline_text(content),
+        Block::Section { title, .. } => inline_text(title),
+        Block::Code { content, .. } => content.clone(),
+        Block::Quote { children } => {
+            children.iter().map(|child| block_text(graph, *child)).collect::<Vec<_>>().join(" ")
+        }
+        _ => String::new(),
+    }
+}
+
+fn inline_text(content: &[Inline]) -> String {
+    content
+        .iter()
+        .map(|inline| match inline {
+            Inline::Text { text } => text.as_str(),
+            _ => "",
+        })
+        .collect()
+}
+
+/// Compares two row keys, keeping blanks last in both directions.
+fn compare_row_keys(left: &str, right: &str, ascending: bool) -> std::cmp::Ordering {
+    let (left, right) = (left.trim(), right.trim());
+    let left_blank = left.is_empty();
+    let right_blank = right.is_empty();
+    if left_blank != right_blank {
+        return if left_blank { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Less };
+    }
+    let ordering = match (left.parse::<f64>(), right.parse::<f64>()) {
+        (Ok(left), Ok(right)) => left.partial_cmp(&right).unwrap_or(std::cmp::Ordering::Equal),
+        _ => left.to_lowercase().cmp(&right.to_lowercase()),
+    };
+    if ascending { ordering } else { ordering.reverse() }
 }
 
 fn set_cell(graph: &mut DocumentGraph, table: usize, row: usize, column: usize, text: String) -> Result<(), ServiceError> {
@@ -2171,7 +2273,7 @@ fn indent_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Resul
 /// renumbered after the splice. Items without such a child are refused.
 fn unindent_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Result<String, ServiceError> {
     let label = resolve_list(graph, id, "`list.unindentItem`")?;
-    let (ordered, child, lifted) = {
+    let (child, lifted) = {
         let node = graph.blocks.iter().find(|node| node.id == id).expect("the list was just resolved");
         let Block::List { ordered, items, .. } = &node.block
         else {
@@ -2193,7 +2295,7 @@ fn unindent_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Res
         else {
             return Err(crate::invalid(format!("item {item} has no nested list of the same marker style to lift")));
         };
-        (*ordered, child, lifted)
+        (child, lifted)
     };
     let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list is still there");
     let Block::List { ordered, items, .. } = &mut node.block

@@ -150,6 +150,8 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `table.duplicateRow` | `table`, `row` (zero-based); deep-copies a row directly after the source inside the same band; the copy gets fresh cell content, so editing one copy leaves the other untouched |
 | `table.insertColumn` | `table`, `column`, `cells?` (one per row) |
 | `table.deleteColumn` | `table`, `column` (last column rejected) |
+| `table.moveColumn` | `table`, `column` (zero-based grid column), `index` (zero-based target within the same column count); the whole column moves in every row, and a table with spanning cells is refused |
+| `table.duplicateColumn` | `table`, `column` (zero-based); deep-copies the column directly after itself in every row; the copy gets fresh cell content, and a table with spanning cells is refused |
 | `template.fill` | `values: { [key]: string \| number \| boolean }` (non-empty) |
 
 `block.duplicate` deep-copies the addressed block and its whole subtree with fresh node ids, then inserts the copy directly after the source in the same container (or at the top level when the source has no container). Inline content, styles and table structure are copied; asset references stay shared. `table.*` indices are zero-based: `table` counts document tables, `row` counts head, body and foot rows in order, `column` is a grid column. Inserted cells use `colspan`/`rowspan` 1, and an inserted column adds one grid column to every row.

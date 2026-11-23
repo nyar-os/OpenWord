@@ -1612,6 +1612,63 @@ fn table_row_moves_and_duplicates_copy_across_the_bands() {
 }
 
 #[test]
+fn table_column_moves_and_duplicates_copy_across_each_row() {
+    let workspace = Workspace::new("columnmoves");
+    let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");
+    let handle = handle_of(&opened);
+
+    let moved = edit(handle, &json!({ "operations": [{ "type": "table.moveColumn", "table": 0, "column": 1, "index": 0 }] }))
+        .expect("move the value column to the front");
+    assert_eq!(moved["results"][0]["type"], json!("table.moveColumn"));
+    assert_eq!(moved["results"][0]["index"], json!(0));
+    assert_eq!(revision_of(&moved), 1);
+
+    let exported = workspace.path("moved-columns.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(
+        text.find("Value").expect("Value") < text.find("Name").expect("Name"),
+        "the moved column leads every row: {text}"
+    );
+
+    let duplicated = edit(handle, &json!({ "operations": [{ "type": "table.duplicateColumn", "table": 0, "column": 0 }] }))
+        .expect("duplicate the leading column");
+    assert_eq!(duplicated["results"][0]["type"], json!("table.duplicateColumn"));
+    assert_eq!(duplicated["results"][0]["newColumn"], json!(1));
+    assert_eq!(revision_of(&duplicated), 2);
+
+    edit(handle, &json!({ "operations": [{ "type": "table.setCell", "table": 0, "row": 1, "column": 1, "text": "copied" }] }))
+        .expect("rewrite the copy");
+    let exported = workspace.path("copied-columns.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("copied"), "the copy carries the edit: {text}");
+    assert!(text.contains("Value") && text.contains("Name"), "both headers survive: {text}");
+    assert!(text.contains("| 1 |"), "the source cell keeps its text: {text}");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    for operation in [
+        json!({ "type": "table.moveColumn", "table": 0, "column": 9, "index": 0 }),
+        json!({ "type": "table.moveColumn", "table": 0, "column": 0, "index": 9 }),
+        json!({ "type": "table.duplicateColumn", "table": 0, "column": 9 }),
+        json!({ "type": "table.duplicateColumn", "table": 9, "column": 0 }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid column address must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    // A spanned table has no single column boundary, so whole-column moves are refused.
+    edit(handle, &json!({ "operations": [{ "type": "table.setCellSpan", "table": 0, "row": 0, "column": 0, "colspan": 2, "rowspan": 1 }] }))
+        .expect("span the header");
+    let spanned = edit(handle, &json!({ "operations": [{ "type": "table.moveColumn", "table": 0, "column": 0, "index": 1 }] }))
+        .expect_err("a spanned table is refused");
+    assert_eq!(spanned.code, "session/argument-invalid");
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn list_item_edits_replace_insert_and_remove_items_in_place() {
     let workspace = Workspace::new("listitems");
     let created = create(&json!({ "title": "Items" })).expect("create");

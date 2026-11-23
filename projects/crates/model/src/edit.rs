@@ -47,6 +47,8 @@ enum Operation {
     DuplicateTableRow { table: usize, row: usize },
     InsertColumn { table: usize, column: usize, cells: Option<Vec<String>> },
     DeleteColumn { table: usize, column: usize },
+    MoveColumn { table: usize, column: usize, index: usize },
+    DuplicateColumn { table: usize, column: usize },
     UpdateParagraph { target: Target, text: String },
     MoveBlock { id: NodeId, index: usize },
     DuplicateBlock { id: NodeId },
@@ -317,6 +319,15 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             cells: optional_cells(operation)?,
         }),
         "table.deleteColumn" => Ok(Operation::DeleteColumn {
+            table: required_index(operation, "table")?,
+            column: required_index(operation, "column")?,
+        }),
+        "table.moveColumn" => Ok(Operation::MoveColumn {
+            table: required_index(operation, "table")?,
+            column: required_index(operation, "column")?,
+            index: required_index(operation, "index")?,
+        }),
+        "table.duplicateColumn" => Ok(Operation::DuplicateColumn {
             table: required_index(operation, "table")?,
             column: required_index(operation, "column")?,
         }),
@@ -695,6 +706,16 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             delete_column(graph, table, column)?;
             graph.bump_revision();
             Ok(json!({ "type": "table.deleteColumn", "table": table, "column": column }))
+        }
+        Operation::MoveColumn { table, column, index } => {
+            move_table_column(graph, table, column, index)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.moveColumn", "table": table, "column": column, "index": index }))
+        }
+        Operation::DuplicateColumn { table, column } => {
+            let new_column = duplicate_table_column(graph, table, column)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.duplicateColumn", "table": table, "column": column, "newColumn": new_column }))
         }
         Operation::UpdateParagraph { target, text } => {
             let label = update_paragraph(graph, target, text)?;
@@ -1431,6 +1452,81 @@ fn duplicate_table_row(graph: &mut DocumentGraph, table: usize, row: usize) -> R
         }
     }
     Ok(row + 1)
+}
+
+/// Moves one whole grid column to another position in every row.
+///
+/// A spanned cell makes a column boundary ambiguous, so a table whose cells all
+/// occupy one column is required; nested content and row spans move with the
+/// cell and are not rewritten.
+fn move_table_column(graph: &mut DocumentGraph, table: usize, column: usize, index: usize) -> Result<(), ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let (_, columns) = table_shape(graph, table_id);
+    if column >= columns {
+        return Err(crate::invalid(format!("`column` {column} is outside the table's {columns} grid columns")));
+    }
+    if index >= columns {
+        return Err(crate::invalid(format!("`index` {index} is outside the table's {columns} column positions")));
+    }
+    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+    let Block::Table { head, body, foot, .. } = &mut node.block
+    else {
+        unreachable!("the id was filtered to a table block");
+    };
+    for row in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()) {
+        if row.cells.len() != columns || row.cells.iter().any(|cell| cell.colspan > 1) {
+            return Err(crate::invalid("`table.moveColumn` needs a rectangular table without spanning cells"));
+        }
+        let cell = row.cells.remove(column);
+        row.cells.insert(index, cell);
+    }
+    Ok(())
+}
+
+/// Deep-copies one whole grid column directly after itself and returns its position.
+///
+/// Cell content is copied into fresh graph nodes, so editing one copy leaves the
+/// other untouched. As with [`move_table_column`], spanning cells are refused
+/// because the copied column would not have one grid boundary.
+fn duplicate_table_column(graph: &mut DocumentGraph, table: usize, column: usize) -> Result<usize, ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let (_, columns) = table_shape(graph, table_id);
+    if column >= columns {
+        return Err(crate::invalid(format!("`column` {column} is outside the table's {columns} grid columns")));
+    }
+    let sources = {
+        let node = graph.blocks.iter().find(|node| node.id == table_id).expect("the table was just resolved");
+        let Block::Table { head, body, foot, .. } = &node.block
+        else {
+            unreachable!("the id was filtered to a table block");
+        };
+        let mut cells = Vec::with_capacity(head.len() + body.len() + foot.len());
+        for row in head.iter().chain(body.iter()).chain(foot.iter()) {
+            if row.cells.len() != columns || row.cells.iter().any(|cell| cell.colspan > 1) {
+                return Err(crate::invalid("`table.duplicateColumn` needs a rectangular table without spanning cells"));
+            }
+            cells.push(row.cells[column].clone());
+        }
+        cells
+    };
+    let mut copies = Vec::with_capacity(sources.len());
+    for cell in sources {
+        let children = cell
+            .children
+            .iter()
+            .map(|child| duplicate_subtree(graph, *child, &mut HashMap::new()))
+            .collect();
+        copies.push(TableCell { children, colspan: 1, rowspan: cell.rowspan });
+    }
+    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+    let Block::Table { head, body, foot, .. } = &mut node.block
+    else {
+        unreachable!("the id was filtered to a table block");
+    };
+    for (row, copy) in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()).zip(copies) {
+        row.cells.insert(column + 1, copy);
+    }
+    Ok(column + 1)
 }
 
 /// Grid index at which a new cell starts, given a target grid column.

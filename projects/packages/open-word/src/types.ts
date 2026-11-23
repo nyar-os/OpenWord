@@ -431,6 +431,24 @@ export type EditOperation =
       }
     | { readonly type: 'table.insertColumn'; readonly table: number; readonly column: number; readonly cells?: readonly string[] }
     | { readonly type: 'table.deleteColumn'; readonly table: number; readonly column: number }
+    | {
+          /** Moves one grid column to another position in every row. */
+          readonly type: 'table.moveColumn';
+          /** Zero-based table index. */
+          readonly table: number;
+          /** Zero-based grid column to move. */
+          readonly column: number;
+          /** Zero-based target grid position inside the same column count. */
+          readonly index: number;
+      }
+    | {
+          /** Deep-copies one grid column directly after itself. */
+          readonly type: 'table.duplicateColumn';
+          /** Zero-based table index. */
+          readonly table: number;
+          /** Zero-based grid column to copy. */
+          readonly column: number;
+      }
     | { readonly type: 'paragraph.update'; readonly id?: string; readonly index?: number; readonly text: string }
     | { readonly type: 'block.move'; readonly id: string; readonly index: number }
     | BlockDuplicateOperation

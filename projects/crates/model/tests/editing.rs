@@ -1522,6 +1522,55 @@ fn code_set_text_rewrites_the_source_and_keeps_the_tag() {
 }
 
 #[test]
+fn table_row_moves_and_duplicates_copy_across_the_bands() {
+    let workspace = Workspace::new("rowmoves");
+    let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");
+    let handle = handle_of(&opened);
+
+    let moved = edit(handle, &json!({ "operations": [{ "type": "table.moveRow", "table": 0, "row": 1, "index": 0 }] }))
+        .expect("move the body row to the front");
+    assert_eq!(moved["results"][0]["type"], json!("table.moveRow"));
+    assert_eq!(moved["results"][0]["index"], json!(0));
+    assert_eq!(moved["document"]["tables"][0]["rows"], json!(2));
+    assert_eq!(revision_of(&moved), 1);
+
+    let exported = workspace.path("moved.txt");
+    export(handle, "txt", &exported, false).expect("export txt");
+    let text = fs::read_to_string(&exported).expect("read txt");
+    let position = |marker: &str| text.find(marker).unwrap_or_else(|| panic!("missing {marker:?} in: {text}"));
+    assert!(position("alpha") < position("Name"), "the moved row leads the grid: {text}");
+
+    let duplicated = edit(handle, &json!({ "operations": [{ "type": "table.duplicateRow", "table": 0, "row": 0 }] }))
+        .expect("duplicate the top row");
+    assert_eq!(duplicated["results"][0]["type"], json!("table.duplicateRow"));
+    assert_eq!(duplicated["results"][0]["newRow"], json!(1));
+    assert_eq!(duplicated["document"]["tables"][0]["rows"], json!(3));
+    assert_eq!(revision_of(&duplicated), 2);
+
+    // The copy is a fresh subtree: rewriting it leaves the source row untouched.
+    edit(handle, &json!({ "operations": [{ "type": "table.setCell", "table": 0, "row": 1, "column": 0, "text": "gamma" }] }))
+        .expect("rewrite the copy");
+    export(handle, "md", &workspace.path("copied.txt"), false).expect("export txt");
+    let text = fs::read_to_string(workspace.path("copied.txt")).expect("read txt");
+    assert!(text.contains("gamma"), "the copy carries the edit: {text}");
+    assert!(text.contains("alpha"), "the source row keeps its text: {text}");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    for operation in [
+        json!({ "type": "table.moveRow", "table": 0, "row": 9, "index": 0 }),
+        json!({ "type": "table.moveRow", "table": 0, "row": 0, "index": 9 }),
+        json!({ "type": "table.duplicateRow", "table": 0, "row": 9 }),
+        json!({ "type": "table.duplicateRow", "table": 9, "row": 0 }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid table address must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn list_item_edits_replace_insert_and_remove_items_in_place() {
     let workspace = Workspace::new("listitems");
     let created = create(&json!({ "title": "Items" })).expect("create");

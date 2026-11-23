@@ -40,6 +40,8 @@ enum Operation {
     SetCell { table: usize, row: usize, column: usize, text: String },
     InsertRow { table: usize, row: usize, cells: Option<Vec<String>> },
     DeleteRow { table: usize, row: usize },
+    MoveTableRow { table: usize, row: usize, index: usize },
+    DuplicateTableRow { table: usize, row: usize },
     InsertColumn { table: usize, column: usize, cells: Option<Vec<String>> },
     DeleteColumn { table: usize, column: usize },
     UpdateParagraph { target: Target, text: String },
@@ -273,6 +275,15 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
         "table.deleteRow" => {
             Ok(Operation::DeleteRow { table: required_index(operation, "table")?, row: required_index(operation, "row")? })
         }
+        "table.moveRow" => Ok(Operation::MoveTableRow {
+            table: required_index(operation, "table")?,
+            row: required_index(operation, "row")?,
+            index: required_index(operation, "index")?,
+        }),
+        "table.duplicateRow" => Ok(Operation::DuplicateTableRow {
+            table: required_index(operation, "table")?,
+            row: required_index(operation, "row")?,
+        }),
         "table.insertColumn" => Ok(Operation::InsertColumn {
             table: required_index(operation, "table")?,
             column: required_index(operation, "column")?,
@@ -622,6 +633,16 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             delete_row(graph, table, row)?;
             graph.bump_revision();
             Ok(json!({ "type": "table.deleteRow", "table": table, "row": row }))
+        }
+        Operation::MoveTableRow { table, row, index } => {
+            let position = move_table_row(graph, table, row, index)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.moveRow", "table": table, "row": row, "index": position }))
+        }
+        Operation::DuplicateTableRow { table, row } => {
+            let position = duplicate_table_row(graph, table, row)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.duplicateRow", "table": table, "row": row, "newRow": position }))
         }
         Operation::InsertColumn { table, column, cells } => {
             insert_column(graph, table, column, cells)?;
@@ -1254,6 +1275,98 @@ fn delete_row(graph: &mut DocumentGraph, table: usize, row: usize) -> Result<(),
         sweep(graph, child);
     }
     Ok(())
+}
+
+/// Moves one row so it lands at grid position `index` and returns that position.
+///
+/// Rows move across the head, body and footer bands, which keep their row
+/// counts: a row moved into the header position becomes the header row and the
+/// row it displaced continues in the body. Cells travel with their spans, so a
+/// `rowspan` cell can misalign a merge; set the spans explicitly after moving
+/// if the grid must stay exact.
+fn move_table_row(graph: &mut DocumentGraph, table: usize, row: usize, index: usize) -> Result<usize, ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let (total_rows, _) = table_shape(graph, table_id);
+    if row >= total_rows {
+        return Err(crate::invalid(format!("`row` {row} is outside the table's {total_rows} rows")));
+    }
+    if index > total_rows {
+        return Err(crate::invalid(format!("`index` {index} is outside the table's {total_rows} insertion points")));
+    }
+    let position = {
+        let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+        let Block::Table { head, body, foot, .. } = &mut node.block
+        else {
+            unreachable!("the id was filtered to a table block");
+        };
+        let head_len = head.len();
+        let foot_len = foot.len();
+        let mut rows = std::mem::take(head);
+        rows.append(body);
+        rows.append(foot);
+        let moved = rows.remove(row);
+        let position = index.min(rows.len());
+        rows.insert(position, moved);
+        let head_len = head_len.min(rows.len());
+        *head = rows.drain(..head_len).collect();
+        let foot_start = rows.len().saturating_sub(foot_len);
+        *foot = rows.split_off(foot_start);
+        *body = rows;
+        position
+    };
+    Ok(position)
+}
+
+/// Deep-copies one row directly after the source and returns the copy's position.
+///
+/// The copy stays inside the source's band and keeps each cell's spans. Cell
+/// content is copied into fresh graph nodes, so editing one copy leaves the
+/// other untouched.
+fn duplicate_table_row(graph: &mut DocumentGraph, table: usize, row: usize) -> Result<usize, ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let (total_rows, _) = table_shape(graph, table_id);
+    if row >= total_rows {
+        return Err(crate::invalid(format!("`row` {row} is outside the table's {total_rows} rows")));
+    }
+    let (cells, band, offset) = {
+        let node = graph.blocks.iter().find(|node| node.id == table_id).expect("the table was just resolved");
+        let Block::Table { head, body, foot, .. } = &node.block
+        else {
+            unreachable!("the id was filtered to a table block");
+        };
+        if row < head.len() {
+            (head[row].cells.clone(), 0usize, row)
+        }
+        else if row < head.len() + body.len() {
+            (body[row - head.len()].cells.clone(), 1, row - head.len())
+        }
+        else {
+            (foot[row - head.len() - body.len()].cells.clone(), 2, row - head.len() - body.len())
+        }
+    };
+    let mut new_cells = Vec::with_capacity(cells.len());
+    for cell in &cells {
+        let children = cell
+            .children
+            .iter()
+            .map(|child| duplicate_subtree(graph, *child, &mut HashMap::new()))
+            .collect();
+        new_cells.push(TableCell { children, colspan: cell.colspan, rowspan: cell.rowspan });
+    }
+    let copy = TableRow { cells: new_cells };
+    {
+        let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+        let Block::Table { head, body, foot, .. } = &mut node.block
+        else {
+            unreachable!("the id was filtered to a table block");
+        };
+        match band {
+            0 => head.insert(offset + 1, copy),
+            1 => body.insert(offset + 1, copy),
+            _ => foot.insert(offset + 1, copy),
+        }
+    }
+    Ok(row + 1)
 }
 
 /// Grid index at which a new cell starts, given a target grid column.

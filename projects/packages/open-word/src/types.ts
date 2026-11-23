@@ -381,6 +381,24 @@ export type EditOperation =
     | { readonly type: 'table.setCell'; readonly table: number; readonly row: number; readonly column: number; readonly text: string }
     | { readonly type: 'table.insertRow'; readonly table: number; readonly row: number; readonly cells?: readonly string[] }
     | { readonly type: 'table.deleteRow'; readonly table: number; readonly row: number }
+    | {
+          /** Moves a row to another grid position, across the head, body and footer bands. */
+          readonly type: 'table.moveRow';
+          /** Zero-based table index. */
+          readonly table: number;
+          /** Zero-based index of the row to move. */
+          readonly row: number;
+          /** Zero-based target grid position; equal to the row count to move the row to the end. */
+          readonly index: number;
+      }
+    | {
+          /** Deep-copies a row directly after the source row. */
+          readonly type: 'table.duplicateRow';
+          /** Zero-based table index. */
+          readonly table: number;
+          /** Zero-based index of the row to copy. */
+          readonly row: number;
+      }
     | { readonly type: 'table.insertColumn'; readonly table: number; readonly column: number; readonly cells?: readonly string[] }
     | { readonly type: 'table.deleteColumn'; readonly table: number; readonly column: number }
     | { readonly type: 'paragraph.update'; readonly id?: string; readonly index?: number; readonly text: string }
@@ -432,6 +450,8 @@ export interface EditOperationResult {
     readonly table?: number;
     /** Row index addressed by a row operation. */
     readonly row?: number;
+    /** Grid position of the copy created by `table.duplicateRow`. */
+    readonly newRow?: number;
     /** Grid column index addressed by a column operation. */
     readonly column?: number;
     /** Caption set or cleared by `table.setCaption`; `null` when cleared. */

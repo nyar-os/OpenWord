@@ -143,6 +143,8 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `table.setCell` | `table`, `row`, `column`, `text` |
 | `table.insertRow` | `table`, `row`, `cells?` (must match the grid width) |
 | `table.deleteRow` | `table`, `row` (last row rejected) |
+| `table.moveRow` | `table`, `row` (zero-based), `index` (zero-based target, equal to the row count to move to the end); rows move across the head, body and footer bands, which keep their row counts; cells keep their spans, so a moved `rowspan` cell can misalign a merge and needs explicit span fixes afterwards |
+| `table.duplicateRow` | `table`, `row` (zero-based); deep-copies a row directly after the source inside the same band; the copy gets fresh cell content, so editing one copy leaves the other untouched |
 | `table.insertColumn` | `table`, `column`, `cells?` (one per row) |
 | `table.deleteColumn` | `table`, `column` (last column rejected) |
 | `template.fill` | `values: { [key]: string \| number \| boolean }` (non-empty) |

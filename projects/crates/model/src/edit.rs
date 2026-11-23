@@ -23,6 +23,7 @@ enum Operation {
     SetListStart { list: NodeId, start: u32 },
     SetListItem { block: NodeId, item: usize, text: String },
     SetItemChecked { block: NodeId, item: usize, checked: bool },
+    SetItemTask { block: NodeId, item: usize, task: bool, checked: Option<bool> },
     MoveListItem { block: NodeId, item: usize, index: usize },
     InsertListItem { block: NodeId, item: usize, text: String },
     RemoveListItem { block: NodeId, item: usize },
@@ -35,6 +36,7 @@ enum Operation {
     Table(Vec<Vec<String>>),
     SetCaption { table: usize, caption: Option<String> },
     SetTableHeader { table: usize, cells: Vec<String> },
+    SetTableFooter { table: usize, cells: Vec<String> },
     SetCellSpan { table: usize, row: usize, column: usize, colspan: u32, rowspan: u32 },
     Metadata { title: Option<String>, author: Option<String> },
     ReplaceText(replace::Request),
@@ -191,6 +193,20 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
                 .ok_or_else(|| crate::invalid("`list.setItemChecked` needs a boolean `checked`"))?;
             Ok(Operation::SetItemChecked { block: parse_block_id(operation)?, item: required_index(operation, "item")?, checked })
         }
+        "list.setItemTask" => {
+            let task = optional_bool(operation, "task")?
+                .ok_or_else(|| crate::invalid("`list.setItemTask` needs a boolean `task`"))?;
+            let checked = optional_bool(operation, "checked")?;
+            if !task && checked.is_some() {
+                return Err(crate::invalid("`checked` is only valid when `task` is true"));
+            }
+            Ok(Operation::SetItemTask {
+                block: parse_block_id(operation)?,
+                item: required_index(operation, "item")?,
+                task,
+                checked,
+            })
+        }
         "list.moveItem" => Ok(Operation::MoveListItem {
             block: parse_block_id(operation)?,
             item: required_index(operation, "item")?,
@@ -242,6 +258,10 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             Ok(Operation::SetCodeText { block: parse_block_id(operation)?, text })
         }
         "table.setHeader" => Ok(Operation::SetTableHeader {
+            table: required_index(operation, "table")?,
+            cells: required_strings(operation, "cells")?,
+        }),
+        "table.setFooter" => Ok(Operation::SetTableFooter {
             table: required_index(operation, "table")?,
             cells: required_strings(operation, "cells")?,
         }),
@@ -576,6 +596,17 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             graph.bump_revision();
             Ok(json!({ "type": "list.setItemChecked", "id": label, "item": item, "checked": checked }))
         }
+        Operation::SetItemTask { block, item, task, checked } => {
+            let label = set_list_item_task(graph, block, item, task, checked)?;
+            graph.bump_revision();
+            Ok(json!({
+                "type": "list.setItemTask",
+                "id": label,
+                "item": item,
+                "task": task,
+                "checked": if task { Some(checked.unwrap_or(false)) } else { None },
+            }))
+        }
         Operation::MoveListItem { block, item, index } => {
             let label = move_list_item(graph, block, item, index)?;
             graph.bump_revision();
@@ -628,6 +659,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             set_table_header(graph, table, cells.clone())?;
             graph.bump_revision();
             Ok(json!({ "type": "table.setHeader", "table": table, "cells": cells }))
+        }
+        Operation::SetTableFooter { table, cells } => {
+            set_table_footer(graph, table, cells.clone())?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.setFooter", "table": table, "cells": cells }))
         }
         Operation::SetCaption { table, caption } => {
             set_caption(graph, table, caption.clone())?;
@@ -1128,26 +1164,55 @@ fn insert_after_source(graph: &mut DocumentGraph, target: NodeId, new_id: NodeId
 /// visual top; a non-empty array creates exactly one header row.
 fn set_table_header(graph: &mut DocumentGraph, table: usize, cells: Vec<String>) -> Result<(), ServiceError> {
     let table_id = table_id_at(graph, table)?;
-    let head = if cells.is_empty() {
-        Vec::new()
-    }
-    else {
-        let cells = cells
-            .into_iter()
-            .map(|text| {
-                let child = graph.push_block(Block::Paragraph { content: vec![Inline::Text { text }] });
-                document_ir::TableCell { children: vec![child], colspan: 1, rowspan: 1 }
-            })
-            .collect();
-        vec![TableRow { cells }]
+    let head = table_text_rows(graph, cells);
+    let old = {
+        let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+        let Block::Table { head: current, .. } = &mut node.block
+        else {
+            unreachable!("the id was filtered to a table block");
+        };
+        std::mem::replace(current, head)
     };
-    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
-    let Block::Table { head: current, .. } = &mut node.block
-    else {
-        unreachable!("the id was filtered to a table block");
-    };
-    *current = head;
+    sweep_rows(graph, old);
     Ok(())
+}
+
+fn set_table_footer(graph: &mut DocumentGraph, table: usize, cells: Vec<String>) -> Result<(), ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let foot = table_text_rows(graph, cells);
+    let old = {
+        let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+        let Block::Table { foot: current, .. } = &mut node.block
+        else {
+            unreachable!("the id was filtered to a table block");
+        };
+        std::mem::replace(current, foot)
+    };
+    sweep_rows(graph, old);
+    Ok(())
+}
+
+/// Removes the cell content that a replaced header or footer row left behind.
+fn sweep_rows(graph: &mut DocumentGraph, rows: Vec<TableRow>) {
+    for row in rows {
+        for cell in row.cells {
+            for child in cell.children {
+                sweep(graph, child);
+            }
+        }
+    }
+}
+
+/// Builds the single header or footer row that a `cells` array describes.
+///
+/// An empty array means "no row", which removes the band; otherwise each text
+/// becomes a plain paragraph cell with span `1x1`.
+fn table_text_rows(graph: &mut DocumentGraph, cells: Vec<String>) -> Vec<TableRow> {
+    if cells.is_empty() {
+        return Vec::new();
+    }
+    let cells = cells.into_iter().map(|text| new_cell(graph, text)).collect();
+    vec![TableRow { cells }]
 }
 
 /// Sets or clears the caption of the table at `table` in document order.
@@ -1830,6 +1895,32 @@ fn set_list_item_checked(graph: &mut DocumentGraph, id: NodeId, item: usize, che
         return Err(crate::invalid("`list.setItemChecked` needs a task list; append one with `taskList.append` first"));
     }
     target.is_checked = Some(checked);
+    Ok(label)
+}
+
+/// Turns one list item into a task item, or back into a plain item.
+///
+/// The text and nested children stay; making an item a task also stores its
+/// check state, which defaults to unchecked. Turning the task flag off clears
+/// the check state because plain items carry none.
+fn set_list_item_task(
+    graph: &mut DocumentGraph,
+    id: NodeId,
+    item: usize,
+    task: bool,
+    checked: Option<bool>,
+) -> Result<String, ServiceError> {
+    let label = resolve_list(graph, id, "`list.setItemTask`")?;
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
+    let Block::List { items, .. } = &mut node.block
+    else {
+        unreachable!("the list was just resolved");
+    };
+    let count = items.len();
+    let target =
+        items.get_mut(item).ok_or_else(|| crate::invalid(format!("item {item} is outside the list's {count} items")))?;
+    target.is_task = task;
+    target.is_checked = if task { Some(checked.unwrap_or(false)) } else { None };
     Ok(label)
 }
 

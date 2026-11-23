@@ -123,6 +123,7 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `list.setStart` | `id` (`node-N`), `start` (positive integer); renumbers an ordered list from `start`, bullets are refused |
 | `list.setItem` | `id` (`node-N`), `item` (zero-based), `text` (non-blank); replaces one item's text, keeping its number, nesting and check state |
 | `list.setItemChecked` | `id` (`node-N`), `item` (zero-based), `checked`; sets a task item's check state, refuses a bullet or numbered list |
+| `list.setItemTask` | `id` (`node-N`), `item` (zero-based), `task`, `checked?`; makes an item a task (default unchecked) or clears the task marker, keeping its text and children |
 | `list.moveItem` | `id` (`node-N`), `item` (zero-based), `index` (zero-based target position inside the list); moves an item with its text, check state and children, renumbering an ordered list from its first number |
 | `list.insertItem` | `id` (`node-N`), `item` (zero-based, up to the item count), `text` (non-blank); inserts a plain item, renumbering an ordered list from the number its first item carried |
 | `list.removeItem` | `id` (`node-N`), `item` (zero-based); removes the item and everything nested under it, renumbers an ordered list, refuses to empty the list |
@@ -135,6 +136,7 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `table.append` | `rows: string[][]` (at least one row and cell) |
 | `table.setCaption` | `table`, `caption?`; omit or `null` clears, a present caption is trimmed and must not be blank |
 | `table.setHeader` | `table` (zero-based), `cells: string[]`; replaces the header row, an empty array removes it |
+| `table.setFooter` | `table` (zero-based), `cells: string[]`; replaces the footer row, an empty array removes it |
 | `metadata.set` | at least one of `title`, `author` |
 | `document.replaceText` | `find` (non-empty), `replace`, `caseSensitive?`, `wholeWord?`, `regex?`, `limit?` |
 | `block.remove` | `id` (`section-N` or `node-N`) |

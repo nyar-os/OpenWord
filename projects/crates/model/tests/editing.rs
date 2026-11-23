@@ -1823,3 +1823,103 @@ fn ordered_list_item_edits_renumber_from_the_list_start() {
 
     close(handle).expect("close");
 }
+
+#[test]
+fn table_set_footer_writes_and_clears_the_footer_band() {
+    let workspace = Workspace::new("footer");
+    let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");
+    let handle = handle_of(&opened);
+
+    let changed = edit(
+        handle,
+        &json!({ "operations": [{ "type": "table.setFooter", "table": 0, "cells": ["Total", "42"] }] }),
+    )
+    .expect("set footer");
+    assert_eq!(changed["results"][0]["type"], json!("table.setFooter"));
+    assert_eq!(changed["results"][0]["table"], json!(0));
+    assert_eq!(changed["results"][0]["cells"], json!(["Total", "42"]));
+    assert_eq!(changed["document"]["tables"][0]["rows"], json!(3), "the footer adds a row");
+    assert_eq!(revision_of(&changed), 1);
+
+    let exported = workspace.path("footer.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("| Total | 42 |"), "the footer exports as the last row: {text}");
+
+    let project = workspace.path("footer.oword");
+    save(handle, &project, false).expect("save project");
+    let envelope: Value = serde_json::from_slice(&fs::read(&project).expect("read project")).expect("parse project");
+    let table = envelope["document"]["blocks"]
+        .as_array()
+        .expect("blocks")
+        .iter()
+        .find(|node| node["block"].get("Table").is_some())
+        .expect("table block");
+    assert_eq!(table["block"]["Table"]["foot"].as_array().expect("foot").len(), 1);
+
+    let cleared =
+        edit(handle, &json!({ "operations": [{ "type": "table.setFooter", "table": 0, "cells": [] }] }))
+            .expect("clear footer");
+    assert_eq!(cleared["document"]["tables"][0]["rows"], json!(2));
+    export(handle, "md", &workspace.path("cleared.md"), false).expect("export markdown");
+    let text = fs::read_to_string(workspace.path("cleared.md")).expect("read markdown");
+    assert!(!text.contains("Total"), "the footer row is gone: {text}");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    for operation in [
+        json!({ "type": "table.setFooter", "table": 9, "cells": ["x"] }),
+        json!({ "type": "table.setFooter", "table": 0 }),
+        json!({ "type": "table.setFooter", "table": 0, "cells": [7] }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid footer must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn list_items_become_tasks_and_revert_to_plain_items() {
+    let workspace = Workspace::new("itemtask");
+    let created = create(&json!({ "title": "Tasks" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "list.append", "items": ["Write", "Ship"] }] }))
+        .expect("append a bullet list");
+
+    let converted =
+        edit(handle, &json!({ "operations": [{ "type": "list.setItemTask", "id": "node-1", "item": 1, "task": true, "checked": true }] }))
+            .expect("turn the second item into a checked task");
+    assert_eq!(converted["results"][0]["type"], json!("list.setItemTask"));
+    assert_eq!(converted["results"][0]["id"], json!("node-1"));
+    assert_eq!(converted["results"][0]["task"], json!(true));
+    assert_eq!(converted["results"][0]["checked"], json!(true));
+
+    let exported = workspace.path("tasks.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("- Write") && !text.contains("- [ ] Write"), "plain items stay plain: {text}");
+    assert!(text.contains("- [x] Ship"), "the converted item carries its marker: {text}");
+
+    let reverted =
+        edit(handle, &json!({ "operations": [{ "type": "list.setItemTask", "id": "node-1", "item": 1, "task": false }] }))
+            .expect("revert the item");
+    assert_eq!(reverted["results"][0]["checked"], Value::Null, "plain items carry no check state");
+    export(handle, "md", &workspace.path("plain.md"), false).expect("export markdown");
+    let text = fs::read_to_string(workspace.path("plain.md")).expect("read markdown");
+    assert!(text.contains("- Ship") && !text.contains("- [x] Ship"), "the task marker is gone: {text}");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    for operation in [
+        json!({ "type": "list.setItemTask", "id": "node-1", "item": 9, "task": true }),
+        json!({ "type": "list.setItemTask", "id": "node-1", "item": 0 }),
+        json!({ "type": "list.setItemTask", "id": "node-1", "item": 0, "task": false, "checked": true }),
+        json!({ "type": "list.setItemTask", "id": "node-999", "item": 0, "task": true }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid item task must fail");
+        assert_ne!(error.code, "");
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}

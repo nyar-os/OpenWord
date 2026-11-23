@@ -306,6 +306,18 @@ export type EditOperation =
           readonly checked: boolean;
       }
     | {
+          /** Marks one item as a task, or clears the task marker, keeping its text and nesting. */
+          readonly type: 'list.setItemTask';
+          /** List address such as `node-4`. */
+          readonly id: string;
+          /** Zero-based item index inside the list. */
+          readonly item: number;
+          /** `true` makes the item a task; `false` turns it back into a plain item. */
+          readonly task: boolean;
+          /** Initial check state when `task` is `true`; defaults to unchecked. */
+          readonly checked?: boolean;
+      }
+    | {
           /** Moves one item to a new position inside its list, keeping its content. */
           readonly type: 'list.moveItem';
           /** List address such as `node-4`. */
@@ -368,6 +380,13 @@ export type EditOperation =
     | {
           /** Replaces the table header row; an empty array removes the header. */
           readonly type: 'table.setHeader';
+          /** Zero-based table index in document order. */
+          readonly table: number;
+          readonly cells: readonly string[];
+      }
+    | {
+          /** Replaces the table footer row; an empty array removes the footer. */
+          readonly type: 'table.setFooter';
           /** Zero-based table index in document order. */
           readonly table: number;
           readonly cells: readonly string[];
@@ -484,8 +503,10 @@ export interface EditOperationResult {
     readonly index?: number;
     /** List items created by `list.append` or `taskList.append`. */
     readonly items?: number;
-    /** Checked items created by `taskList.append`. */
-    readonly checked?: number;
+    /** Checked items created by `taskList.append`, or the state applied by `list.setItemTask`. */
+    readonly checked?: number | boolean | null;
+    /** Task flag applied by `list.setItemTask`. */
+    readonly task?: boolean;
     /** Whether the list appended by `list.append` is ordered. */
     readonly ordered?: boolean;
     /** First number requested by `list.append` or applied by `list.setStart`; `null` when none was given or the list is unordered. */
@@ -504,7 +525,7 @@ export interface EditOperationResult {
     readonly column?: number;
     /** Caption set or cleared by `table.setCaption`; `null` when cleared. */
     readonly caption?: string | null;
-    /** Header cells applied by `table.setHeader`. */
+    /** Header or footer cells applied by `table.setHeader` or `table.setFooter`. */
     readonly cells?: readonly string[];
     /** Level applied by `heading.setLevel`. */
     readonly level?: number;

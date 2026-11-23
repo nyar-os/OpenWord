@@ -398,7 +398,16 @@ export type EditOperation =
           /** New caption. Omit or `null` to clear the caption. */
           readonly caption?: string | null;
       }
-    | { readonly type: 'metadata.set'; readonly title?: string; readonly author?: string }
+    | {
+          /** Replaces document properties; at least one field is required. */
+          readonly type: 'metadata.set';
+          readonly title?: string;
+          readonly author?: string;
+          /** Primary language tag such as `en` or `zh-CN`. */
+          readonly language?: string;
+          /** Free-form tags; an empty array clears them. */
+          readonly tags?: readonly string[];
+      }
     | {
           readonly type: 'document.replaceText';
           readonly find: string;
@@ -507,13 +516,15 @@ export interface EditOperationResult {
     readonly checked?: number | boolean | null;
     /** Task flag applied by `list.setItemTask`. */
     readonly task?: boolean;
+    /** Tags applied by `metadata.set`, or `null` when it was not part of the request. */
+    readonly tags?: readonly string[] | null;
     /** Whether the list appended by `list.append` is ordered. */
     readonly ordered?: boolean;
     /** First number requested by `list.append` or applied by `list.setStart`; `null` when none was given or the list is unordered. */
     readonly start?: number | null;
     /** Item index addressed by `list.setItem`, `list.insertItem` or `list.removeItem`. */
     readonly item?: number;
-    /** Language tag of the code block appended by `code.append`; `null` when none was given. */
+    /** Language tag of a code block or the language applied by `metadata.set`; `null` when none was given. */
     readonly language?: string | null;
     /** Table index addressed by a table operation. */
     readonly table?: number;

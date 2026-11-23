@@ -137,7 +137,7 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `table.setCaption` | `table`, `caption?`; omit or `null` clears, a present caption is trimmed and must not be blank |
 | `table.setHeader` | `table` (zero-based), `cells: string[]`; replaces the header row, an empty array removes it |
 | `table.setFooter` | `table` (zero-based), `cells: string[]`; replaces the footer row, an empty array removes it |
-| `metadata.set` | at least one of `title`, `author` |
+| `metadata.set` | at least one of `title`, `author`, `language` (non-empty tag), `tags: string[]`; an empty `tags` array clears them |
 | `document.replaceText` | `find` (non-empty), `replace`, `caseSensitive?`, `wholeWord?`, `regex?`, `limit?` |
 | `block.remove` | `id` (`section-N` or `node-N`) |
 | `paragraph.insert` | `index`, `text` |

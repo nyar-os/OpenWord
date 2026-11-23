@@ -1923,3 +1923,58 @@ fn list_items_become_tasks_and_revert_to_plain_items() {
 
     close(handle).expect("close");
 }
+
+#[test]
+fn metadata_set_writes_language_and_tags() {
+    let workspace = Workspace::new("metadata");
+    let created = create(&json!({ "title": "Metadata" })).expect("create");
+    let handle = handle_of(&created);
+
+    let changed = edit(
+        handle,
+        &json!({ "operations": [{
+            "type": "metadata.set",
+            "title": "Field notes",
+            "author": "Ada",
+            "language": "  zh-CN  ",
+            "tags": [" alpha ", "beta"],
+        }] }),
+    )
+    .expect("set metadata");
+    assert_eq!(changed["results"][0]["type"], json!("metadata.set"));
+    assert_eq!(changed["results"][0]["language"], json!("zh-CN"));
+    assert_eq!(changed["results"][0]["tags"], json!(["alpha", "beta"]));
+    assert_eq!(revision_of(&changed), 1);
+
+    let project = workspace.path("metadata.oword");
+    save(handle, &project, false).expect("save project");
+    let envelope: Value = serde_json::from_slice(&fs::read(&project).expect("read project")).expect("parse project");
+    let metadata = &envelope["document"]["metadata"];
+    assert_eq!(metadata["title"], json!("Field notes"));
+    assert_eq!(metadata["language"], json!("zh-CN"));
+    assert_eq!(metadata["authors"], json!(["Ada"]));
+    assert_eq!(metadata["tags"], json!(["alpha", "beta"]));
+
+    let cleared = edit(handle, &json!({ "operations": [{ "type": "metadata.set", "tags": [] }] }))
+        .expect("clear tags");
+    assert_eq!(cleared["results"][0]["tags"], json!([]));
+    save(handle, &project, true).expect("save project");
+    let envelope: Value = serde_json::from_slice(&fs::read(&project).expect("read project")).expect("parse project");
+    assert_eq!(envelope["document"]["metadata"]["tags"], json!([]));
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    for operation in [
+        json!({ "type": "metadata.set" }),
+        json!({ "type": "metadata.set", "language": "   " }),
+        json!({ "type": "metadata.set", "language": 7 }),
+        json!({ "type": "metadata.set", "tags": "alpha" }),
+        json!({ "type": "metadata.set", "tags": [1] }),
+        json!({ "type": "metadata.set", "tags": [" "] }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid metadata must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}

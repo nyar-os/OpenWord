@@ -38,7 +38,7 @@ enum Operation {
     SetTableHeader { table: usize, cells: Vec<String> },
     SetTableFooter { table: usize, cells: Vec<String> },
     SetCellSpan { table: usize, row: usize, column: usize, colspan: u32, rowspan: u32 },
-    Metadata { title: Option<String>, author: Option<String> },
+    Metadata { title: Option<String>, author: Option<String>, language: Option<String>, tags: Option<Vec<String>> },
     ReplaceText(replace::Request),
     RemoveBlock { id: NodeId },
     InsertParagraph { index: usize, text: String },
@@ -294,10 +294,19 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
         "metadata.set" => {
             let title = optional_text(operation, "title")?;
             let author = optional_text(operation, "author")?;
-            if title.is_none() && author.is_none() {
-                return Err(crate::invalid("`metadata.set` needs `title` or `author`"));
+            let language = match operation.get("language") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(text)) if text.trim().is_empty() => {
+                    return Err(crate::invalid("`language` must be a non-empty tag such as `en`"));
+                }
+                Some(Value::String(text)) => Some(text.trim().to_owned()),
+                Some(_) => return Err(crate::invalid("`language` must be a string")),
+            };
+            let tags = optional_tags(operation)?;
+            if title.is_none() && author.is_none() && language.is_none() && tags.is_none() {
+                return Err(crate::invalid("`metadata.set` needs `title`, `author`, `language` or `tags`"));
             }
-            Ok(Operation::Metadata { title, author })
+            Ok(Operation::Metadata { title, author, language, tags })
         }
         "document.replaceText" => Ok(Operation::ReplaceText(replace::Request::parse(operation)?)),
         "block.remove" => {
@@ -422,6 +431,25 @@ fn optional_text(operation: &Value, key: &str) -> Result<Option<String>, Service
         Some(Value::String(text)) => Ok(Some(text.clone())),
         Some(_) => Err(crate::invalid(format!("`{key}` must be a string"))),
     }
+}
+
+/// Reads an optional string array, trimming entries and rejecting blanks.
+///
+/// An empty array is meaningful: it clears the previous tags.
+fn optional_tags(operation: &Value) -> Result<Option<Vec<String>>, ServiceError> {
+    let Some(value) = operation.get("tags").filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    let entries = value.as_array().ok_or_else(|| crate::invalid("`tags` must be an array of strings"))?;
+    let mut tags = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let text = entry.as_str().ok_or_else(|| crate::invalid("`tags` must be an array of strings"))?.trim();
+        if text.is_empty() {
+            return Err(crate::invalid("`tags` must not contain an empty entry"));
+        }
+        tags.push(text.to_owned());
+    }
+    Ok(Some(tags))
 }
 
 fn optional_index(operation: &Value, key: &str) -> Result<Option<usize>, ServiceError> {
@@ -670,15 +698,21 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             graph.bump_revision();
             Ok(json!({ "type": "table.setCaption", "table": table, "caption": caption }))
         }
-        Operation::Metadata { title, author } => {
-            if let Some(title) = title {
+        Operation::Metadata { title, author, language, tags } => {
+            if let Some(title) = title.clone() {
                 graph.metadata.title = Some(title);
             }
-            if let Some(author) = author {
+            if let Some(author) = author.clone() {
                 graph.metadata.authors = vec![author];
             }
+            if let Some(language) = language.clone() {
+                graph.metadata.language = Some(language);
+            }
+            if let Some(tags) = tags.clone() {
+                graph.metadata.tags = tags;
+            }
             graph.bump_revision();
-            Ok(json!({ "type": "metadata.set" }))
+            Ok(json!({ "type": "metadata.set", "title": title, "author": author, "language": language, "tags": tags }))
         }
         Operation::ReplaceText(request) => {
             let replaced = replace::apply(graph, &request).replaced;

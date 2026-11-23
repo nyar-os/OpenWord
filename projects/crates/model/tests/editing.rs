@@ -1522,6 +1522,47 @@ fn code_set_text_rewrites_the_source_and_keeps_the_tag() {
 }
 
 #[test]
+fn heading_insert_lands_before_the_addressed_block() {
+    let workspace = Workspace::new("headinginsert");
+    let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");
+    let handle = handle_of(&opened);
+
+    let inserted = edit(handle, &json!({ "operations": [{ "type": "heading.insert", "index": 2, "level": 2, "text": "Background" }] }))
+        .expect("insert a heading before the Details section");
+    assert_eq!(inserted["results"][0]["type"], json!("heading.insert"));
+    let id = inserted["results"][0]["id"].as_str().expect("heading id").to_owned();
+    assert!(id.starts_with("section-"), "the new block is a section: {id}");
+    assert_eq!(revision_of(&inserted), 1);
+
+    let seeded = summary(handle).expect("summary");
+    let titles: Vec<&str> = seeded["sections"]
+        .as_array()
+        .expect("sections")
+        .iter()
+        .map(|section| section["title"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(titles, vec!["Overview", "Background", "Details"], "the new heading lands before the addressed block");
+
+    let exported = workspace.path("inserted.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("## Background"), "the heading exports at its level: {text}");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    for operation in [
+        json!({ "type": "heading.insert", "index": 99, "level": 2, "text": "Far" }),
+        json!({ "type": "heading.insert", "index": 0, "level": 0, "text": "Bottom" }),
+        json!({ "type": "heading.insert", "index": 0, "level": 7, "text": "Top" }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid heading insert must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn table_row_moves_and_duplicates_copy_across_the_bands() {
     let workspace = Workspace::new("rowmoves");
     let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");

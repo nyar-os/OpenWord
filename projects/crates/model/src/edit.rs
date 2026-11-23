@@ -17,6 +17,7 @@ enum Operation {
     Heading { level: u8, text: String },
     HeadingLevel { section: NodeId, level: u8 },
     HeadingText { section: NodeId, text: String },
+    InsertHeading { index: usize, level: u8, text: String },
     List { ordered: bool, items: Vec<String>, start: Option<u32> },
     SetListOrdered { list: NodeId, ordered: bool },
     SetListStart { list: NodeId, start: u32 },
@@ -121,6 +122,20 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
                 return Err(crate::invalid("`level` must be between 1 and 6"));
             }
             Ok(Operation::Heading { level: level as u8, text: required_text(operation, "text")? })
+        }
+        "heading.insert" => {
+            let level = operation
+                .get("level")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| crate::invalid("`heading.insert` needs a numeric `level`"))?;
+            if !(1..=6).contains(&level) {
+                return Err(crate::invalid("`level` must be between 1 and 6"));
+            }
+            Ok(Operation::InsertHeading {
+                index: required_index(operation, "index")?,
+                level: level as u8,
+                text: required_text(operation, "text")?,
+            })
         }
         "heading.setLevel" => {
             let level = operation
@@ -497,6 +512,11 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
         Operation::Heading { level, text } => {
             append_block(graph, Block::Section { level, title: vec![Inline::Text { text }], children: Vec::new() });
             Ok(json!({ "type": "heading.append" }))
+        }
+        Operation::InsertHeading { index, level, text } => {
+            let id = insert_heading(graph, index, level, text)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "heading.insert", "id": format!("section-{}", id.0) }))
         }
         Operation::HeadingLevel { section, level } => {
             let label = set_heading_level(graph, section, level)?;
@@ -881,6 +901,28 @@ fn prune_children(block: &mut Block, doomed: &HashSet<NodeId>) {
         }
         _ => {}
     }
+}
+
+/// Inserts a heading before the block at flat index `index` and returns its id.
+///
+/// Mirrors `insert_paragraph`: when the target sits inside a container the new
+/// section joins that container; otherwise it moves in front of the target at
+/// the top level. The new section starts without children.
+fn insert_heading(graph: &mut DocumentGraph, index: usize, level: u8, text: String) -> Result<NodeId, ServiceError> {
+    let order = document_ir::flat_order(graph);
+    let Some(target) = order.get(index).copied()
+    else {
+        return Err(crate::invalid(format!("`index` {index} is outside the document's {} blocks", order.len())));
+    };
+    let id = graph.push_block(Block::Section { level, title: vec![Inline::Text { text }], children: Vec::new() });
+    if !insert_into_container(graph, target, id) {
+        // A top-level block has no container list, so the node itself moves in
+        // front of the target to keep document order.
+        let position = graph.blocks.iter().position(|node| node.id == target).unwrap_or(graph.blocks.len());
+        let node = graph.blocks.pop().expect("the new block was just pushed");
+        graph.blocks.insert(position, node);
+    }
+    Ok(id)
 }
 
 fn insert_paragraph(graph: &mut DocumentGraph, index: usize, text: String) -> Result<NodeId, ServiceError> {

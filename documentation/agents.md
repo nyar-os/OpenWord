@@ -115,6 +115,7 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | --- | --- |
 | `paragraph.append` | `text` |
 | `heading.append` | `level` 1–6, `text` |
+| `heading.insert` | `index` (zero-based flat block index), `level` (1–6), `text`; inserts before the addressed block, joining its container when the target is nested |
 | `heading.setLevel` | `id` (`section-N`), `level` 1–6; changes only the level, keeping the title and children |
 | `heading.setText` | `id` (`section-N`), `text`; replaces only the title, keeping the level, children and position |
 | `list.append` | `items: string[]`, `ordered?`, `start?` (ordered only) |

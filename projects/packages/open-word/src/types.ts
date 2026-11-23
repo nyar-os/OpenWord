@@ -237,6 +237,16 @@ export type EditOperation =
     | { readonly type: 'paragraph.append'; readonly text: string }
     | { readonly type: 'heading.append'; readonly level: number; readonly text: string }
     | {
+          /** Inserts a heading before the block at flat index `index`, mirroring `paragraph.insert`. */
+          readonly type: 'heading.insert';
+          /** Zero-based flat block index the new heading lands in front of; equal to the block count to append. */
+          readonly index: number;
+          /** Heading level, `1..6`. */
+          readonly level: number;
+          /** Heading text, stored as one plain text run. */
+          readonly text: string;
+      }
+    | {
           /** Changes the level of an existing heading without moving or retitling it. */
           readonly type: 'heading.setLevel';
           /** Heading address such as `section-3`. */

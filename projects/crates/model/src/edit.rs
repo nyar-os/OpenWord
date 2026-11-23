@@ -25,6 +25,7 @@ enum Operation {
     SetItemChecked { block: NodeId, item: usize, checked: bool },
     SetItemTask { block: NodeId, item: usize, task: bool, checked: Option<bool> },
     MoveListItem { block: NodeId, item: usize, index: usize },
+    MoveListItemTo { block: NodeId, item: usize, target: NodeId, index: usize },
     IndentListItem { block: NodeId, item: usize },
     UnindentListItem { block: NodeId, item: usize },
     InsertListItem { block: NodeId, item: usize, text: String },
@@ -219,6 +220,17 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             item: required_index(operation, "item")?,
             index: required_index(operation, "index")?,
         }),
+        "list.moveItemTo" => {
+            let raw = required_text(operation, "target")?;
+            let target = document_ir::parse_block_address(&raw)
+                .ok_or_else(|| crate::invalid("`target` must be a list id such as `node-3`"))?;
+            Ok(Operation::MoveListItemTo {
+                block: parse_block_id(operation)?,
+                item: required_index(operation, "item")?,
+                target,
+                index: required_index(operation, "index")?,
+            })
+        }
         "list.indentItem" => Ok(Operation::IndentListItem {
             block: parse_block_id(operation)?,
             item: required_index(operation, "item")?,
@@ -713,6 +725,17 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             let label = move_list_item(graph, block, item, index)?;
             graph.bump_revision();
             Ok(json!({ "type": "list.moveItem", "id": label, "item": item, "index": index }))
+        }
+        Operation::MoveListItemTo { block, item, target, index } => {
+            let (label, target_label) = move_list_item_to(graph, block, item, target, index)?;
+            graph.bump_revision();
+            Ok(json!({
+                "type": "list.moveItemTo",
+                "id": label,
+                "target": target_label,
+                "item": item,
+                "index": index,
+            }))
         }
         Operation::IndentListItem { block, item } => {
             let label = indent_list_item(graph, block, item)?;
@@ -2325,6 +2348,94 @@ fn move_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, index: usi
         renumber_items(items, base)?;
     }
     Ok(label)
+}
+
+/// Moves one item, with everything nested under it, into another list.
+///
+/// The item keeps its text, task marker, check state and nested blocks. An
+/// ordered source and destination are each renumbered from their own first
+/// number. A destination nested inside the moved item is refused because the
+/// move would create a cycle.
+fn move_list_item_to(
+    graph: &mut DocumentGraph,
+    id: NodeId,
+    item: usize,
+    target: NodeId,
+    index: usize,
+) -> Result<(String, String), ServiceError> {
+    let label = resolve_list(graph, id, "`list.moveItemTo`")?;
+    let target_label = resolve_list(graph, target, "`list.moveItemTo`")?;
+    if id == target {
+        move_list_item(graph, id, item, index)?;
+        return Ok((label, target_label));
+    }
+    let (source_ordered, source_base, moved) = {
+        let node = graph.blocks.iter().find(|node| node.id == id).expect("the list was just resolved");
+        let Block::List { ordered, items, .. } = &node.block
+        else {
+            unreachable!("the list was just checked");
+        };
+        let count = items.len();
+        if item >= count {
+            return Err(crate::invalid(format!("item {item} is outside the list's {count} items")));
+        }
+        let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
+        (*ordered, base, items[item].clone())
+    };
+    let mut pending = moved.children.clone();
+    let mut seen = Vec::new();
+    while let Some(child) = pending.pop() {
+        if child == target {
+            return Err(crate::invalid("`list.moveItemTo` cannot move an item into a list nested inside it"));
+        }
+        if seen.contains(&child) {
+            continue;
+        }
+        seen.push(child);
+        if let Some(node) = graph.blocks.iter().find(|node| node.id == child) {
+            pending.extend(document_ir::child_ids(&node.block));
+        }
+    }
+    let target_base = {
+        let node = graph.blocks.iter().find(|node| node.id == target).expect("the target list was just resolved");
+        let Block::List { ordered, items, .. } = &node.block
+        else {
+            unreachable!("the target list was just checked");
+        };
+        if index > items.len() {
+            return Err(crate::invalid(format!(
+                "`index` {index} is outside the target list's {} insertion points",
+                items.len()
+            )));
+        }
+        if *ordered {
+            items.first().and_then(|entry| entry.number).unwrap_or(1)
+        }
+        else {
+            0
+        }
+    };
+    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
+    let Block::List { ordered: _, items, .. } = &mut node.block
+    else {
+        unreachable!("the list was just checked");
+    };
+    items.remove(item);
+    if source_ordered {
+        renumber_items(items, source_base)?;
+    }
+    let node = graph.blocks.iter_mut().find(|node| node.id == target).expect("the target list was just resolved");
+    let Block::List { ordered: target_ordered, items, .. } = &mut node.block
+    else {
+        unreachable!("the target list was just checked");
+    };
+    let mut moved = moved;
+    moved.number = None;
+    items.insert(index, moved);
+    if *target_ordered {
+        renumber_items(items, target_base)?;
+    }
+    Ok((label, target_label))
 }
 
 /// Nests one item under the item before it and returns the list's address.

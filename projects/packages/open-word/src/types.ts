@@ -328,6 +328,18 @@ export type EditOperation =
           readonly index: number;
       }
     | {
+          /** Moves one item, with everything nested under it, into another list. */
+          readonly type: 'list.moveItemTo';
+          /** Source list address such as `node-4`. */
+          readonly id: string;
+          /** Zero-based item index to move. */
+          readonly item: number;
+          /** Destination list address. */
+          readonly target: string;
+          /** Zero-based insertion point in the destination list, up to its item count. */
+          readonly index: number;
+      }
+    | {
           /** Nests one item under the item before it as a child list. */
           readonly type: 'list.indentItem';
           /** List address such as `node-4`. */
@@ -562,6 +574,8 @@ export interface EditOperationResult {
     readonly id?: string;
     /** Address of the fresh block `block.duplicate` created. */
     readonly newId?: string;
+    /** Destination list echoed by `list.moveItemTo`. */
+    readonly target?: string;
     /** Depth-first position the block an operation created now holds. */
     readonly index?: number;
     /** Casing rule applied by `block.setTextCase`. */

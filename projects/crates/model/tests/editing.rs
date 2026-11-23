@@ -1890,6 +1890,53 @@ fn list_items_unindent_back_into_the_parent_run() {
 }
 
 #[test]
+fn list_items_move_between_lists_and_renumber_both_runs() {
+    let workspace = Workspace::new("moveacross");
+    let created = create(&json!({ "title": "Cross list" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "list.append", "items": ["One", "Two", "Three"], "ordered": true },
+        { "type": "list.append", "items": ["Four", "Five"], "ordered": true },
+    ] }))
+    .expect("append two ordered lists");
+    edit(handle, &json!({ "operations": [{ "type": "list.indentItem", "id": "node-1", "item": 1 }] }))
+        .expect("nest Two under One");
+
+    let report = edit(handle, &json!({ "operations": [
+        { "type": "list.moveItemTo", "id": "node-1", "item": 1, "target": "node-2", "index": 1 },
+    ] }))
+    .expect("move Three into the second list");
+    assert_eq!(report["results"][0]["type"], json!("list.moveItemTo"));
+    assert_eq!(report["results"][0]["id"], json!("node-1"));
+    assert_eq!(report["results"][0]["target"], json!("node-2"));
+    assert_eq!(report["results"][0]["item"], json!(1));
+    assert_eq!(report["results"][0]["index"], json!(1));
+
+    let exported = workspace.path("crossed.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("1. One\n  1. Two"), "the source keeps its nested run: {text}");
+    assert!(text.contains("1. Four\n2. Three\n3. Five"), "the target renumbers around the moved item: {text}");
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    for operation in [
+        json!({ "type": "list.moveItemTo", "id": "node-1", "item": 5, "target": "node-2", "index": 0 }),
+        json!({ "type": "list.moveItemTo", "id": "node-1", "item": 0, "target": "node-2", "index": 9 }),
+        json!({ "type": "list.moveItemTo", "id": "node-1", "item": 0, "target": "node-999", "index": 0 }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("bad cross-list move");
+        assert!(
+            error.code == "session/argument-invalid" || error.code == "object/not-found",
+            "unexpected code: {}",
+            error.code
+        );
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed moves consume no revision");
+
+    close(handle).expect("close");
+}
+
+#[test]
 fn list_items_duplicate_with_their_nested_children() {
     let workspace = Workspace::new("listduplicate");
     let created = create(&json!({ "title": "Outline" })).expect("create");

@@ -392,6 +392,18 @@ export type EditOperation =
           readonly cells: readonly string[];
       }
     | {
+          /** Replaces the whole header band; every row needs the same cell count, an empty array clears it. */
+          readonly type: 'table.setHeaderRows';
+          readonly table: number;
+          readonly rows: readonly (readonly string[])[];
+      }
+    | {
+          /** Replaces the whole footer band; every row needs the same cell count, an empty array clears it. */
+          readonly type: 'table.setFooterRows';
+          readonly table: number;
+          readonly rows: readonly (readonly string[])[];
+      }
+    | {
           readonly type: 'table.setCaption';
           /** Zero-based table index in document order. */
           readonly table: number;
@@ -538,6 +550,8 @@ export interface EditOperationResult {
     readonly caption?: string | null;
     /** Header or footer cells applied by `table.setHeader` or `table.setFooter`. */
     readonly cells?: readonly string[];
+    /** Header or footer row count written by `table.setHeaderRows` or `table.setFooterRows`. */
+    readonly rows?: number;
     /** Level applied by `heading.setLevel`. */
     readonly level?: number;
     /** Title applied by `heading.setText`. */

@@ -1978,3 +1978,69 @@ fn metadata_set_writes_language_and_tags() {
 
     close(handle).expect("close");
 }
+
+#[test]
+fn table_bands_accept_multiple_header_and_footer_rows() {
+    let workspace = Workspace::new("bands");
+    let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");
+    let handle = handle_of(&opened);
+
+    let changed = edit(
+        handle,
+        &json!({ "operations": [{
+            "type": "table.setHeaderRows",
+            "table": 0,
+            "rows": [["Group", "Group"], ["Name", "Value"]],
+        }] }),
+    )
+    .expect("set two header rows");
+    assert_eq!(changed["results"][0], json!({ "type": "table.setHeaderRows", "table": 0, "rows": 2 }));
+    assert_eq!(changed["document"]["tables"][0]["rows"], json!(3), "two header rows plus one body row");
+
+    let footer = edit(
+        handle,
+        &json!({ "operations": [{
+            "type": "table.setFooterRows",
+            "table": 0,
+            "rows": [["A", "1"], ["B", "2"]],
+        }] }),
+    )
+    .expect("set two footer rows");
+    assert_eq!(footer["results"][0]["rows"], json!(2));
+
+    let project = workspace.path("bands.oword");
+    save(handle, &project, false).expect("save project");
+    let envelope: Value = serde_json::from_slice(&fs::read(&project).expect("read project")).expect("parse project");
+    let table = envelope["document"]["blocks"]
+        .as_array()
+        .expect("blocks")
+        .iter()
+        .find(|node| node["block"].get("Table").is_some())
+        .expect("table block");
+    let head = table["block"]["Table"]["head"].as_array().expect("head");
+    let foot = table["block"]["Table"]["foot"].as_array().expect("foot");
+    assert_eq!(head.len(), 2);
+    assert_eq!(foot.len(), 2);
+    assert_eq!(head[1]["cells"][0]["children"].as_array().expect("children").len(), 1);
+    assert_eq!(foot[1]["cells"][1]["children"].as_array().expect("children").len(), 1);
+
+    let cleared = edit(handle, &json!({ "operations": [{ "type": "table.setFooterRows", "table": 0, "rows": [] }] }))
+        .expect("clear footer rows");
+    assert_eq!(cleared["results"][0]["rows"], json!(0));
+    assert_eq!(cleared["document"]["tables"][0]["rows"], json!(3));
+
+    let before = revision_of(&summary(handle).expect("summary"));
+    for operation in [
+        json!({ "type": "table.setHeaderRows", "table": 0, "rows": "Group" }),
+        json!({ "type": "table.setHeaderRows", "table": 0, "rows": [[]] }),
+        json!({ "type": "table.setHeaderRows", "table": 0, "rows": [["a"], ["b", "c"]] }),
+        json!({ "type": "table.setHeaderRows", "table": 0, "rows": [[1]] }),
+        json!({ "type": "table.setFooterRows", "table": 9, "rows": [["a"]] }),
+    ] {
+        let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid band must fail");
+        assert_eq!(error.code, "session/argument-invalid");
+    }
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before);
+
+    close(handle).expect("close");
+}

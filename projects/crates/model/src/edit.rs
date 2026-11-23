@@ -37,6 +37,8 @@ enum Operation {
     SetCaption { table: usize, caption: Option<String> },
     SetTableHeader { table: usize, cells: Vec<String> },
     SetTableFooter { table: usize, cells: Vec<String> },
+    SetTableHeaderRows { table: usize, rows: Vec<Vec<String>> },
+    SetTableFooterRows { table: usize, rows: Vec<Vec<String>> },
     SetCellSpan { table: usize, row: usize, column: usize, colspan: u32, rowspan: u32 },
     Metadata { title: Option<String>, author: Option<String>, language: Option<String>, tags: Option<Vec<String>> },
     ReplaceText(replace::Request),
@@ -265,6 +267,14 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             table: required_index(operation, "table")?,
             cells: required_strings(operation, "cells")?,
         }),
+        "table.setHeaderRows" => Ok(Operation::SetTableHeaderRows {
+            table: required_index(operation, "table")?,
+            rows: required_text_rows(operation)?,
+        }),
+        "table.setFooterRows" => Ok(Operation::SetTableFooterRows {
+            table: required_index(operation, "table")?,
+            rows: required_text_rows(operation)?,
+        }),
         "table.setCellSpan" => {
             let colspan = required_index(operation, "colspan")?;
             let rowspan = required_index(operation, "rowspan")?;
@@ -482,6 +492,43 @@ fn required_strings(operation: &Value, key: &str) -> Result<Vec<String>, Service
         .collect()
 }
 
+/// Reads the `rows` array used by the multi-row header and footer operations.
+///
+/// An empty array clears the band; otherwise every row must be non-empty and
+/// all rows must have the same number of cells.
+fn required_text_rows(operation: &Value) -> Result<Vec<Vec<String>>, ServiceError> {
+    let rows = operation
+        .get("rows")
+        .and_then(Value::as_array)
+        .ok_or_else(|| crate::invalid("`rows` must be an array of string arrays"))?;
+    let mut parsed: Vec<Vec<String>> = Vec::with_capacity(rows.len());
+    let mut width = None;
+    for row in rows {
+        let cells = row.as_array().ok_or_else(|| crate::invalid("`rows` must be an array of string arrays"))?;
+        if cells.is_empty() {
+            return Err(crate::invalid("each header or footer row needs at least one cell"));
+        }
+        let mut texts = Vec::with_capacity(cells.len());
+        for cell in cells {
+            texts.push(
+                cell.as_str().ok_or_else(|| crate::invalid("`rows` must contain only strings"))?.to_owned(),
+            );
+        }
+        match width {
+            None => width = Some(texts.len()),
+            Some(width) if width != texts.len() => {
+                return Err(crate::invalid(format!(
+                    "every header or footer row needs {width} cells, but one row has {}",
+                    texts.len()
+                )));
+            }
+            Some(_) => {}
+        }
+        parsed.push(texts);
+    }
+    Ok(parsed)
+}
+
 fn required_rows(operation: &Value) -> Result<Vec<Vec<String>>, ServiceError> {
     let rows =
         operation.get("rows").and_then(Value::as_array).ok_or_else(|| crate::invalid("`table.append` needs a `rows` array"))?;
@@ -692,6 +739,16 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             set_table_footer(graph, table, cells.clone())?;
             graph.bump_revision();
             Ok(json!({ "type": "table.setFooter", "table": table, "cells": cells }))
+        }
+        Operation::SetTableHeaderRows { table, rows } => {
+            let count = set_table_band_rows(graph, table, rows, true)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.setHeaderRows", "table": table, "rows": count }))
+        }
+        Operation::SetTableFooterRows { table, rows } => {
+            let count = set_table_band_rows(graph, table, rows, false)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "table.setFooterRows", "table": table, "rows": count }))
         }
         Operation::SetCaption { table, caption } => {
             set_caption(graph, table, caption.clone())?;
@@ -1235,6 +1292,38 @@ fn sweep_rows(graph: &mut DocumentGraph, rows: Vec<TableRow>) {
             }
         }
     }
+}
+
+/// Replaces a header or footer band with any number of text rows.
+///
+/// The old rows are swept so no orphaned paragraph blocks survive the change.
+fn set_table_band_rows(
+    graph: &mut DocumentGraph,
+    table: usize,
+    rows: Vec<Vec<String>>,
+    header: bool,
+) -> Result<usize, ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let count = rows.len();
+    let built = rows
+        .into_iter()
+        .map(|cells| TableRow { cells: cells.into_iter().map(|text| new_cell(graph, text)).collect() })
+        .collect::<Vec<_>>();
+    let old = {
+        let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+        let Block::Table { head, foot, .. } = &mut node.block
+        else {
+            unreachable!("the id was filtered to a table block");
+        };
+        if header {
+            std::mem::replace(head, built)
+        }
+        else {
+            std::mem::replace(foot, built)
+        }
+    };
+    sweep_rows(graph, old);
+    Ok(count)
 }
 
 /// Builds the single header or footer row that a `cells` array describes.

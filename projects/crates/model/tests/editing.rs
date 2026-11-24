@@ -2551,3 +2551,62 @@ fn block_swap_rejects_same_nested_and_unknown_blocks() {
 
     close(handle).expect("close");
 }
+
+#[test]
+fn table_transpose_flips_the_grid_and_folds_the_bands_into_the_body() {
+    let created = create(&json!({ "title": "Transpose" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "table.append", "rows": [["a", "b", "c"], ["d", "e", "f"]] }] }))
+        .expect("seed a two-by-three table");
+
+    let transposed = edit(handle, &json!({ "operations": [{ "type": "table.transpose", "table": 0 }] })).expect("transpose");
+    assert_eq!(
+        transposed["results"][0],
+        json!({ "type": "table.transpose", "table": 0, "rows": 3, "columns": 2, "headRows": 1, "footRows": 0 })
+    );
+    assert_eq!(revision_of(&transposed), 2);
+    assert_eq!(transposed["document"]["tables"][0]["rows"], json!(3));
+    assert_eq!(transposed["document"]["tables"][0]["columns"], json!(2));
+    assert_eq!(
+        summary_text(&transposed["document"]),
+        "a\nd\nb\ne\nc\nf",
+        "cells travel into the transposed rows"
+    );
+
+    edit(handle, &json!({ "operations": [{ "type": "table.setFooterRows", "table": 0, "rows": [["g", "h"]] }] }))
+        .expect("add a footer row");
+    let again = edit(handle, &json!({ "operations": [{ "type": "table.transpose", "table": 0 }] })).expect("transpose again");
+    assert_eq!(
+        again["results"][0],
+        json!({ "type": "table.transpose", "table": 0, "rows": 2, "columns": 4, "headRows": 0, "footRows": 1 })
+    );
+    assert_eq!(again["document"]["tables"][0]["rows"], json!(2));
+    assert_eq!(again["document"]["tables"][0]["columns"], json!(4));
+    assert_eq!(summary_text(&again["document"]), "a\nb\nc\ng\nd\ne\nf\nh", "the folded footer becomes a column");
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn table_transpose_rejects_spans_and_missing_tables() {
+    let created = create(&json!({ "title": "Transpose errors" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "table.append", "rows": [["a", "b"], ["c", "d"]] },
+        { "type": "table.setCellSpan", "table": 0, "row": 0, "column": 0, "colspan": 2, "rowspan": 1 },
+    ] }))
+    .expect("seed a merged table");
+    let before = revision_of(&summary(handle).expect("summary"));
+
+    let spanning = edit(handle, &json!({ "operations": [{ "type": "table.transpose", "table": 0 }] }))
+        .expect_err("spanning cells cannot be transposed");
+    assert_eq!(spanning.code, "session/argument-invalid");
+
+    let missing = edit(handle, &json!({ "operations": [{ "type": "table.transpose", "table": 5 }] }))
+        .expect_err("no table at that index");
+    assert_eq!(missing.code, "session/argument-invalid");
+
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed transposes consume no revision");
+
+    close(handle).expect("close");
+}

@@ -46,6 +46,7 @@ enum Operation {
     SetTableFooterRows { table: usize, rows: Vec<Vec<String>> },
     SetCellSpan { table: usize, row: usize, column: usize, colspan: u32, rowspan: u32 },
     SortTableRows { table: usize, column: usize, ascending: bool },
+    TransposeTable { table: usize },
     SetTextCase { id: NodeId, case: TextCase },
     Metadata { title: Option<String>, author: Option<String>, language: Option<String>, tags: Option<Vec<String>> },
     ReplaceText(replace::Request),
@@ -342,6 +343,7 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             column: required_index(operation, "column")?,
             ascending: operation.get("ascending").and_then(Value::as_bool).unwrap_or(true),
         }),
+        "table.transpose" => Ok(Operation::TransposeTable { table: required_index(operation, "table")? }),
         "metadata.set" => {
             let title = optional_text(operation, "title")?;
             let author = optional_text(operation, "author")?;
@@ -936,6 +938,18 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             sort_table_rows(graph, table, column, ascending)?;
             graph.bump_revision();
             Ok(json!({ "type": "table.sortRows", "table": table, "column": column, "ascending": ascending }))
+        }
+        Operation::TransposeTable { table } => {
+            let (rows, columns, head_rows, foot_rows) = transpose_table(graph, table)?;
+            graph.bump_revision();
+            Ok(json!({
+                "type": "table.transpose",
+                "table": table,
+                "rows": rows,
+                "columns": columns,
+                "headRows": head_rows,
+                "footRows": foot_rows,
+            }))
         }
         Operation::SetTextCase { id, case } => {
             let label = graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id));
@@ -1662,6 +1676,38 @@ fn sort_table_rows(graph: &mut DocumentGraph, table: usize, column: usize, ascen
     };
     *body = sorted;
     Ok(())
+}
+
+/// Flips a table's rows and columns and returns the new dimensions together
+/// with the head and footer row counts that folded away.
+///
+/// The head, body and footer bands are read as one rectangular grid in visual
+/// order, so the table must be rectangular without spanning cells. The
+/// transposed grid is written back as the body because a vertical header band
+/// cannot be expressed; the report's `headRows` and `footRows` disclose the
+/// rows that lost their band. Cells keep their content, the caption survives.
+fn transpose_table(graph: &mut DocumentGraph, table: usize) -> Result<(usize, usize, usize, usize), ServiceError> {
+    let table_id = table_id_at(graph, table)?;
+    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+    let Block::Table { head, body, foot, .. } = &mut node.block else { unreachable!("the id was filtered to a table block") };
+    let grid = head.iter().chain(body.iter()).chain(foot.iter()).map(|row| row.cells.clone()).collect::<Vec<_>>();
+    let width = grid.first().map(Vec::len).unwrap_or_default();
+    let rectangular = !grid.is_empty()
+        && width > 0
+        && grid.iter().all(|row| row.len() == width)
+        && grid.iter().all(|row| row.iter().all(|cell| cell.colspan == 1 && cell.rowspan == 1));
+    if !rectangular {
+        return Err(crate::invalid("`table.transpose` needs a rectangular table without spanning cells"));
+    }
+    let (head_rows, foot_rows) = (head.len(), foot.len());
+    let total = grid.len();
+    let transposed = (0..width)
+        .map(|column| TableRow { cells: (0..total).map(|row| grid[row][column].clone()).collect() })
+        .collect::<Vec<_>>();
+    *head = Vec::new();
+    *body = transposed;
+    *foot = Vec::new();
+    Ok((width, total, head_rows, foot_rows))
 }
 
 /// Reads the visible text of one table cell for sorting.

@@ -502,6 +502,8 @@ export type EditOperation =
           /** Ascending when true, which is the default. */
           readonly ascending?: boolean;
       }
+    /** Flips a rectangular table's rows and columns; head and footer rows fold into the body. */
+    | { readonly type: 'table.transpose'; readonly table: number }
     | { readonly type: 'table.setCell'; readonly table: number; readonly row: number; readonly column: number; readonly text: string }
     | { readonly type: 'table.insertRow'; readonly table: number; readonly row: number; readonly cells?: readonly string[] }
     | { readonly type: 'table.deleteRow'; readonly table: number; readonly row: number }
@@ -638,6 +640,12 @@ export interface EditOperationResult {
     readonly cells?: readonly string[];
     /** Header or footer row count written by `table.setHeaderRows` or `table.setFooterRows`. */
     readonly rows?: number;
+    /** Grid columns reported by `table.transpose`. */
+    readonly columns?: number;
+    /** Head rows folded into the body by `table.transpose`. */
+    readonly headRows?: number;
+    /** Footer rows folded into the body by `table.transpose`. */
+    readonly footRows?: number;
     /** Level applied by `heading.setLevel`. */
     readonly level?: number;
     /** Title applied by `heading.setText`. */

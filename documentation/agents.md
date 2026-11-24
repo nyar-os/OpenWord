@@ -141,6 +141,7 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `table.append` | `rows: string[][]` (at least one row and cell) |
 | `table.setCaption` | `table`, `caption?`; omit or `null` clears, a present caption is trimmed and must not be blank |
 | `table.sortRows` | `table`, `column` (zero-based cell index), optional `ascending` (default `true`); sorts only the body band, comparing numeric keys numerically and other keys case-insensitively, with blank keys always trailing; refuses body rows that contain `rowspan > 1` |
+| `table.transpose` | `table`; flips the grid so every row becomes a column; head and footer rows fold into the body and the report's `headRows`/`footRows` disclose that loss; refuses tables that are not rectangular or contain spanning cells |
 | `table.setHeader` | `table` (zero-based), `cells: string[]`; replaces the header row, an empty array removes it |
 | `table.setFooter` | `table` (zero-based), `cells: string[]`; replaces the footer row, an empty array removes it |
 | `table.setHeaderRows` | `table` (zero-based), `rows: string[][]`; replaces the whole header band, every row must have the same cell count, an empty array removes it |

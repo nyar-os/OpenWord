@@ -2373,3 +2373,117 @@ fn table_bands_accept_multiple_header_and_footer_rows() {
 
     close(handle).expect("close");
 }
+
+#[test]
+fn block_convert_switches_kinds_and_keeps_position() {
+    let workspace = Workspace::new("convert");
+    let created = create(&json!({ "title": "Convert" })).expect("create");
+    let handle = handle_of(&created);
+    let seeded = edit(handle, &json!({ "operations": [
+        { "type": "paragraph.append", "text": "Lead" },
+        { "type": "paragraph.append", "text": "Tail" },
+    ] }))
+    .expect("seed paragraphs");
+
+    let heading = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "heading", "level": 2 }] }))
+        .expect("convert to heading");
+    assert_eq!(
+        heading["results"][0],
+        json!({ "type": "block.convert", "id": "node-1", "from": "paragraph", "to": "heading", "level": 2 })
+    );
+    assert_eq!(heading["document"]["sections"][0]["title"], json!("Lead"));
+    assert_eq!(revision_of(&heading), revision_of(&seeded) + 1);
+
+    let paragraph = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "section-1", "to": "paragraph" }] }))
+        .expect("convert back to paragraph");
+    assert_eq!(paragraph["results"][0], json!({ "type": "block.convert", "id": "section-1", "from": "heading", "to": "paragraph" }));
+    assert!(paragraph["document"]["sections"].as_array().expect("sections").is_empty());
+    assert_eq!(summary_text(&paragraph["document"]), "Lead\nTail");
+
+    let quote = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "quote" }] }))
+        .expect("convert to quote");
+    assert_eq!(quote["results"][0], json!({ "type": "block.convert", "id": "node-1", "from": "paragraph", "to": "quote" }));
+    assert_eq!(summary_text(&quote["document"]), "Lead\nTail", "the quote child keeps the text");
+    let back = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "paragraph" }] }))
+        .expect("convert the quote back");
+    assert_eq!(summary_text(&back["document"]), "Lead\nTail");
+
+    let code = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "code", "language": "rust" }] }))
+        .expect("convert to code");
+    assert_eq!(
+        code["results"][0],
+        json!({ "type": "block.convert", "id": "node-1", "from": "paragraph", "to": "code", "language": "rust" })
+    );
+    let fenced = workspace.path("converted.md");
+    export(handle, "md", &fenced, false).expect("export markdown");
+    let text = fs::read_to_string(&fenced).expect("read markdown");
+    assert!(text.contains("```rust") && text.contains("Lead"), "the paragraph text became fenced code: {text}");
+    let restored = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "paragraph" }] }))
+        .expect("convert the code back");
+    assert_eq!(summary_text(&restored["document"]), "Lead\nTail");
+
+    let list = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "list", "ordered": true }] }))
+        .expect("convert to a list");
+    assert_eq!(
+        list["results"][0],
+        json!({ "type": "block.convert", "id": "node-1", "from": "paragraph", "to": "list", "ordered": true })
+    );
+    edit(handle, &json!({ "operations": [{ "type": "list.insertItem", "id": "node-1", "item": 1, "text": "Second" }] }))
+        .expect("add a second item");
+    let split = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "paragraph" }] }))
+        .expect("split the list into paragraphs");
+    assert_eq!(split["results"][0], json!({ "type": "block.convert", "id": "node-1", "from": "list", "to": "paragraph" }));
+    assert_eq!(summary_text(&split["document"]), "Lead\nSecond\nTail", "items become paragraphs in order");
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn block_convert_rejects_unknown_ids_same_kinds_and_bad_arguments() {
+    let created = create(&json!({ "title": "Convert errors" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "paragraph.append", "text": "Body" },
+        { "type": "table.append", "rows": [["a", "b"]] },
+        { "type": "heading.append", "level": 1, "text": "Head" },
+    ] }))
+    .expect("seed blocks");
+    let before = revision_of(&summary(handle).expect("summary"));
+
+    let missing =
+        edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-999", "to": "heading", "level": 1 }] }))
+            .expect_err("unknown id");
+    assert_eq!(missing.code, "object/not-found");
+
+    let same = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "paragraph" }] }))
+        .expect_err("same kind");
+    assert_eq!(same.code, "session/argument-invalid");
+
+    let table = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-4", "to": "paragraph" }] }))
+        .expect_err("a table is not convertible");
+    assert_eq!(table.code, "session/argument-invalid");
+
+    let no_level = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "heading" }] }))
+        .expect_err("heading conversion needs a level");
+    assert_eq!(no_level.code, "session/argument-invalid");
+
+    let bad_level = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "heading", "level": 7 }] }))
+        .expect_err("level out of range");
+    assert_eq!(bad_level.code, "session/argument-invalid");
+
+    let bad_kind = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "table" }] }))
+        .expect_err("unsupported target kind");
+    assert_eq!(bad_kind.code, "session/argument-invalid");
+
+    let stray = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "quote", "level": 2 }] }))
+        .expect_err("level is only valid for heading targets");
+    assert_eq!(stray.code, "session/argument-invalid");
+
+    let bad_pair = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "section-5", "to": "code" }] }))
+        .expect_err("heading to code is not a supported pair");
+    assert_eq!(bad_pair.code, "session/argument-invalid");
+
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed conversions consume no revision");
+
+    close(handle).expect("close");
+}

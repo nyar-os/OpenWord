@@ -63,6 +63,7 @@ enum Operation {
     UpdateParagraph { target: Target, text: String },
     MoveBlock { id: NodeId, index: usize },
     DuplicateBlock { id: NodeId },
+    ConvertBlock { id: NodeId, to: ConvertKind, level: Option<u8>, language: Option<String>, ordered: Option<bool> },
     TemplateFill { values: Vec<(String, String)> },
 }
 
@@ -414,6 +415,56 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
         }
         "block.move" => Ok(Operation::MoveBlock { id: parse_block_id(operation)?, index: required_index(operation, "index")? }),
         "block.duplicate" => Ok(Operation::DuplicateBlock { id: parse_block_id(operation)? }),
+        "block.convert" => {
+            let to = ConvertKind::parse(&required_text(operation, "to")?)
+                .ok_or_else(|| crate::invalid("`to` must be `paragraph`, `heading`, `quote`, `code` or `list`"))?;
+            let level = match to {
+                ConvertKind::Heading => {
+                    let level = operation
+                        .get("level")
+                        .and_then(Value::as_u64)
+                        .ok_or_else(|| crate::invalid("`block.convert` to `heading` needs a numeric `level`"))?;
+                    if !(1..=6).contains(&level) {
+                        return Err(crate::invalid("`level` must be between 1 and 6"));
+                    }
+                    Some(level as u8)
+                }
+                other => {
+                    if operation.get("level").filter(|value| !value.is_null()).is_some() {
+                        return Err(crate::invalid(format!(
+                            "`level` is only valid when converting to `heading`, not to `{}`",
+                            other.label()
+                        )));
+                    }
+                    None
+                }
+            };
+            let language = match to {
+                ConvertKind::Code => optional_text(operation, "language")?.filter(|value| !value.trim().is_empty()),
+                other => {
+                    if operation.get("language").filter(|value| !value.is_null()).is_some() {
+                        return Err(crate::invalid(format!(
+                            "`language` is only valid when converting to `code`, not to `{}`",
+                            other.label()
+                        )));
+                    }
+                    None
+                }
+            };
+            let ordered = match to {
+                ConvertKind::List => Some(optional_bool(operation, "ordered")?.unwrap_or(false)),
+                other => {
+                    if operation.get("ordered").filter(|value| !value.is_null()).is_some() {
+                        return Err(crate::invalid(format!(
+                            "`ordered` is only valid when converting to `list`, not to `{}`",
+                            other.label()
+                        )));
+                    }
+                    None
+                }
+            };
+            Ok(Operation::ConvertBlock { id: parse_block_id(operation)?, to, level, language, ordered })
+        }
         "template.fill" => Ok(Operation::TemplateFill { values: required_values(operation)? }),
         "block.setTextCase" => {
             let case = TextCase::parse(&required_text(operation, "case")?)
@@ -947,6 +998,22 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             graph.bump_revision();
             let index = document_ir::flat_order(graph).iter().position(|node| *node == new_id).unwrap_or_default();
             Ok(json!({ "type": "block.duplicate", "id": label, "newId": format!("node-{}", new_id.0), "index": index }))
+        }
+        Operation::ConvertBlock { id, to, level, language, ordered } => {
+            let label = graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id));
+            let from = convert_block(graph, id, to, level, language.as_deref(), ordered)?;
+            graph.bump_revision();
+            let mut report = json!({ "type": "block.convert", "id": label, "from": from, "to": to.label() });
+            if let Some(level) = level {
+                report["level"] = json!(level);
+            }
+            if to == ConvertKind::Code {
+                report["language"] = json!(language);
+            }
+            if let Some(ordered) = ordered {
+                report["ordered"] = json!(ordered);
+            }
+            Ok(report)
         }
         Operation::TemplateFill { values } => {
             let replaced = fill_template(graph, &values);
@@ -2816,4 +2883,230 @@ fn reorder_root_before(graph: &mut DocumentGraph, target: NodeId, id: NodeId) {
     let node = graph.blocks.remove(position);
     let target_position = graph.blocks.iter().position(|node| node.id == target).unwrap_or(graph.blocks.len());
     graph.blocks.insert(target_position, node);
+}
+
+/// Block kind `block.convert` can switch a block to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConvertKind {
+    Paragraph,
+    Heading,
+    Quote,
+    Code,
+    List,
+}
+
+impl ConvertKind {
+    /// Parses one kind name; `None` means the name is not supported.
+    fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "paragraph" => Some(Self::Paragraph),
+            "heading" => Some(Self::Heading),
+            "quote" => Some(Self::Quote),
+            "code" => Some(Self::Code),
+            "list" => Some(Self::List),
+            _ => None,
+        }
+    }
+
+    /// Stable name echoed by the operation report.
+    fn label(self) -> &'static str {
+        match self {
+            Self::Paragraph => "paragraph",
+            Self::Heading => "heading",
+            Self::Quote => "quote",
+            Self::Code => "code",
+            Self::List => "list",
+        }
+    }
+}
+
+/// Converts one block to another kind in place and returns the source kind.
+///
+/// The block keeps its id and position. A paragraph becomes a heading with the
+/// requested level and keeps its inline title, becomes a quote holding one new
+/// paragraph child, becomes code whose source is the paragraph's plain text, or
+/// becomes a one-item list. A heading becomes a paragraph that keeps the title
+/// inlines while its children move to the top level directly after it. A quote
+/// becomes a paragraph: a single paragraph child is reused, otherwise the
+/// children's plain text is joined and the old children are swept. Code becomes
+/// a paragraph that keeps the source text. A list becomes a paragraph per item:
+/// the first item takes the block's place and the remaining items, together
+/// with each item's nested children, follow directly after it. Converting a
+/// block to its own kind, a table, and any other pair is refused.
+fn convert_block(
+    graph: &mut DocumentGraph,
+    id: NodeId,
+    to: ConvertKind,
+    level: Option<u8>,
+    language: Option<&str>,
+    ordered: Option<bool>,
+) -> Result<&'static str, ServiceError> {
+    let Some(node) = graph.blocks.iter().find(|node| node.id == id) else {
+        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+    };
+    let from = match &node.block {
+        Block::Paragraph { .. } => ConvertKind::Paragraph,
+        Block::Section { .. } => ConvertKind::Heading,
+        Block::Quote { .. } => ConvertKind::Quote,
+        Block::Code { .. } => ConvertKind::Code,
+        Block::List { .. } => ConvertKind::List,
+        _ => {
+            return Err(crate::invalid("`block.convert` can only convert paragraphs, headings, quotes, code blocks and lists"));
+        }
+    };
+    if from == to {
+        return Err(crate::invalid(format!("the addressed block is already a `{}`", to.label())));
+    }
+    match (from, to) {
+        (ConvertKind::Paragraph, ConvertKind::Heading) => {
+            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+            let Block::Paragraph { content } = &mut node.block else { unreachable!("the source was a paragraph") };
+            let title = std::mem::take(content);
+            node.block = Block::Section { level: level.expect("a heading conversion carries a level"), title, children: Vec::new() };
+        }
+        (ConvertKind::Heading, ConvertKind::Paragraph) => {
+            let (title, children) = {
+                let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+                let Block::Section { title, children, .. } = &mut node.block else { unreachable!("the source was a heading") };
+                (std::mem::take(title), std::mem::take(children))
+            };
+            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
+            node.block = Block::Paragraph { content: title };
+            let mut anchor = id;
+            for child in children {
+                if graph.blocks.iter().any(|node| node.id == child) {
+                    place_after(graph, anchor, child);
+                    anchor = child;
+                }
+            }
+        }
+        (ConvertKind::Paragraph, ConvertKind::Quote) => {
+            let content = {
+                let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+                let Block::Paragraph { content } = &mut node.block else { unreachable!("the source was a paragraph") };
+                std::mem::take(content)
+            };
+            let child = graph.push_block(Block::Paragraph { content });
+            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
+            node.block = Block::Quote { children: vec![child] };
+        }
+        (ConvertKind::Quote, ConvertKind::Paragraph) => {
+            let old_children = {
+                let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+                let Block::Quote { children } = &mut node.block else { unreachable!("the source was a quote") };
+                std::mem::take(children)
+            };
+            let content = match old_children.as_slice() {
+                [child] => graph
+                    .blocks
+                    .iter()
+                    .find(|node| node.id == *child)
+                    .and_then(|node| match &node.block { Block::Paragraph { content } => Some(content.clone()), _ => None }),
+                _ => None,
+            };
+            let content = content.unwrap_or_else(|| {
+                vec![Inline::Text {
+                    text: old_children.iter().map(|child| block_text(graph, *child)).collect::<Vec<_>>().join(" "),
+                }]
+            });
+            for old in old_children {
+                sweep(graph, old);
+            }
+            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
+            node.block = Block::Paragraph { content };
+        }
+        (ConvertKind::Paragraph, ConvertKind::Code) => {
+            let content = {
+                let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+                let Block::Paragraph { content } = &mut node.block else { unreachable!("the source was a paragraph") };
+                std::mem::take(content)
+            };
+            let text = document_ir::plain_text(&content);
+            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
+            node.block = Block::Code { language: language.map(str::to_owned), content: text };
+        }
+        (ConvertKind::Code, ConvertKind::Paragraph) => {
+            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+            let Block::Code { content, .. } = &mut node.block else { unreachable!("the source was code") };
+            let text = std::mem::take(content);
+            node.block = Block::Paragraph { content: vec![Inline::Text { text }] };
+        }
+        (ConvertKind::Paragraph, ConvertKind::List) => {
+            let content = {
+                let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+                let Block::Paragraph { content } = &mut node.block else { unreachable!("the source was a paragraph") };
+                std::mem::take(content)
+            };
+            let ordered = ordered.unwrap_or(false);
+            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
+            node.block = Block::List {
+                ordered,
+                items: vec![ListItem {
+                    content,
+                    children: Vec::new(),
+                    number: ordered.then_some(1),
+                    is_task: false,
+                    is_checked: None,
+                }],
+            };
+        }
+        (ConvertKind::List, ConvertKind::Paragraph) => {
+            let items = {
+                let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
+                let Block::List { items, .. } = &mut node.block else { unreachable!("the source was a list") };
+                std::mem::take(items)
+            };
+            let mut items = items.into_iter();
+            let mut anchor = id;
+            match items.next() {
+                Some(first) => {
+                    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
+                    node.block = Block::Paragraph { content: first.content };
+                    for child in first.children {
+                        if graph.blocks.iter().any(|node| node.id == child) {
+                            place_after(graph, anchor, child);
+                            anchor = child;
+                        }
+                    }
+                }
+                None => {
+                    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
+                    node.block = Block::Paragraph { content: Vec::new() };
+                }
+            }
+            for item in items {
+                let paragraph = graph.push_block(Block::Paragraph { content: item.content });
+                place_after(graph, anchor, paragraph);
+                anchor = paragraph;
+                for child in item.children {
+                    if graph.blocks.iter().any(|node| node.id == child) {
+                        place_after(graph, anchor, child);
+                        anchor = child;
+                    }
+                }
+            }
+        }
+        (source, target) => {
+            return Err(crate::invalid(format!(
+                "`block.convert` cannot turn a `{}` into a `{}`",
+                source.label(),
+                target.label()
+            )));
+        }
+    }
+    Ok(from.label())
+}
+
+/// Places an existing node directly after `anchor`: inside the container that
+/// holds `anchor` when it has one, or right behind it in the top-level order.
+fn place_after(graph: &mut DocumentGraph, anchor: NodeId, node: NodeId) {
+    if insert_after_source(graph, anchor, node) {
+        return;
+    }
+    let Some(position) = graph.blocks.iter().position(|block| block.id == node) else {
+        return;
+    };
+    let block = graph.blocks.remove(position);
+    let anchor_position = graph.blocks.iter().position(|block| block.id == anchor).unwrap_or(graph.blocks.len());
+    graph.blocks.insert(anchor_position + 1, block);
 }

@@ -545,6 +545,16 @@ export type EditOperation =
       }
     | { readonly type: 'paragraph.update'; readonly id?: string; readonly index?: number; readonly text: string }
     | { readonly type: 'block.move'; readonly id: string; readonly index: number }
+    /** Convert a block to another kind in place; `level` is required for a
+     *  heading target, `language` optional for code, `ordered` optional for a list. */
+    | {
+          readonly type: 'block.convert';
+          readonly id: string;
+          readonly to: 'paragraph' | 'heading' | 'quote' | 'code' | 'list';
+          readonly level?: number;
+          readonly language?: string | null;
+          readonly ordered?: boolean;
+      }
     | {
           /** Rewrites the block's own text with a casing rule; nested blocks keep theirs. */
           readonly type: 'block.setTextCase';
@@ -586,6 +596,10 @@ export interface EditOperationResult {
     readonly target?: string;
     /** Depth-first position the block an operation created now holds. */
     readonly index?: number;
+    /** Kind the block had before `block.convert`. */
+    readonly from?: string;
+    /** Kind `block.convert` switched the block to. */
+    readonly to?: string;
     /** Casing rule applied by `block.setTextCase`. */
     readonly case?: 'upper' | 'lower' | 'title';
     /** Text runs rewritten by `block.setTextCase`. */

@@ -555,6 +555,8 @@ export type EditOperation =
           readonly language?: string | null;
           readonly ordered?: boolean;
       }
+    /** Exchange the document positions of two top-level blocks; subtrees travel. */
+    | { readonly type: 'block.swap'; readonly id: string; readonly target: string }
     | {
           /** Rewrites the block's own text with a casing rule; nested blocks keep theirs. */
           readonly type: 'block.setTextCase';
@@ -592,7 +594,7 @@ export interface EditOperationResult {
     readonly id?: string;
     /** Address of the fresh block `block.duplicate` created. */
     readonly newId?: string;
-    /** Destination list echoed by `list.moveItemTo`. */
+    /** Destination list echoed by `list.moveItemTo`, or the other block echoed by `block.swap`. */
     readonly target?: string;
     /** Depth-first position the block an operation created now holds. */
     readonly index?: number;

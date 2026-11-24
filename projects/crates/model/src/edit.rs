@@ -64,6 +64,7 @@ enum Operation {
     MoveBlock { id: NodeId, index: usize },
     DuplicateBlock { id: NodeId },
     ConvertBlock { id: NodeId, to: ConvertKind, level: Option<u8>, language: Option<String>, ordered: Option<bool> },
+    SwapBlocks { id: NodeId, target: NodeId },
     TemplateFill { values: Vec<(String, String)> },
 }
 
@@ -464,6 +465,12 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
                 }
             };
             Ok(Operation::ConvertBlock { id: parse_block_id(operation)?, to, level, language, ordered })
+        }
+        "block.swap" => {
+            let raw = required_text(operation, "target")?;
+            let target = document_ir::parse_block_address(&raw)
+                .ok_or_else(|| crate::invalid("`target` must be a block id such as `node-3` or `section-1`"))?;
+            Ok(Operation::SwapBlocks { id: parse_block_id(operation)?, target })
         }
         "template.fill" => Ok(Operation::TemplateFill { values: required_values(operation)? }),
         "block.setTextCase" => {
@@ -1014,6 +1021,14 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
                 report["ordered"] = json!(ordered);
             }
             Ok(report)
+        }
+        Operation::SwapBlocks { id, target } => {
+            let label = graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id));
+            let target_label =
+                graph.blocks.iter().find(|node| node.id == target).map(|node| document_ir::block_address(&node.block, target));
+            swap_blocks(graph, id, target)?;
+            graph.bump_revision();
+            Ok(json!({ "type": "block.swap", "id": label, "target": target_label }))
         }
         Operation::TemplateFill { values } => {
             let replaced = fill_template(graph, &values);
@@ -3109,4 +3124,30 @@ fn place_after(graph: &mut DocumentGraph, anchor: NodeId, node: NodeId) {
     let block = graph.blocks.remove(position);
     let anchor_position = graph.blocks.iter().position(|block| block.id == anchor).unwrap_or(graph.blocks.len());
     graph.blocks.insert(anchor_position + 1, block);
+}
+
+/// Exchanges the top-level positions of two blocks.
+///
+/// Both blocks must exist and sit at the top level of the document; nested
+/// blocks belong to their container's order and are refused. The whole subtree
+/// of each block travels with it, so sections keep their children.
+fn swap_blocks(graph: &mut DocumentGraph, id: NodeId, target: NodeId) -> Result<(), ServiceError> {
+    for node in [id, target] {
+        if !graph.blocks.iter().any(|block| block.id == node) {
+            return Err(ServiceError::new("object/not-found", format!("no block has id {}", node.0)));
+        }
+    }
+    if id == target {
+        return Err(crate::invalid("`block.swap` needs two different blocks"));
+    }
+    let roots = document_ir::roots(graph);
+    for node in [id, target] {
+        if !roots.contains(&node) {
+            return Err(crate::invalid("`block.swap` can only swap top-level blocks"));
+        }
+    }
+    let first = graph.blocks.iter().position(|block| block.id == id).expect("the block was just resolved");
+    let second = graph.blocks.iter().position(|block| block.id == target).expect("the block was just resolved");
+    graph.blocks.swap(first, second);
+    Ok(())
 }

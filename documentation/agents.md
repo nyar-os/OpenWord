@@ -153,6 +153,7 @@ Paginate the exported PDF rather than predicting page breaks from the document m
 | `block.move` | `id`, `index` |
 | `block.duplicate` | `id`; returns `newId` and the copy's depth-first `index` |
 | `block.convert` | `id`, `to` (`paragraph`, `heading`, `quote`, `code` or `list`), `level` (required for `heading`), `language` (for `code`), `ordered` (for `list`); converts the block in place and echoes `from` and `to`; heading children and list items become top-level or following paragraphs; same-kind and unsupported pairs are rejected |
+| `block.swap` | `id`, `target` (both top-level block addresses); exchanges the two blocks' positions, subtrees travelling with them; same, nested or unknown blocks are rejected |
 | `block.setTextCase` | `id`, `case` (`upper`, `lower` or `title`); rewrites the block's own text only, so nested blocks and table cells keep theirs; returns `changed` run count |
 | `table.setCellSpan` | `table`, `row`, `column` (top-left grid column), `colspan`, `rowspan` (1–65535); keeps the content, `1x1` unmerges |
 | `table.setCell` | `table`, `row`, `column`, `text` |

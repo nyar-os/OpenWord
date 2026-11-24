@@ -2487,3 +2487,67 @@ fn block_convert_rejects_unknown_ids_same_kinds_and_bad_arguments() {
 
     close(handle).expect("close");
 }
+
+#[test]
+fn block_swap_exchanges_top_level_blocks_with_their_subtrees() {
+    let created = create(&json!({ "title": "Swap" })).expect("create");
+    let handle = handle_of(&created);
+    let seeded = edit(handle, &json!({ "operations": [
+        { "type": "heading.append", "level": 1, "text": "Alpha" },
+        { "type": "paragraph.append", "text": "Tail" },
+        { "type": "heading.insert", "index": 0, "level": 1, "text": "Zeta" },
+    ] }))
+    .expect("seed two top-level sections");
+    let sections = seeded["document"]["sections"].as_array().expect("sections");
+    assert_eq!(sections[0]["title"], json!("Zeta"));
+    assert_eq!(sections[1]["title"], json!("Alpha"));
+
+    let swapped = edit(handle, &json!({ "operations": [{ "type": "block.swap", "id": "section-3", "target": "section-1" }] }))
+        .expect("swap the two sections");
+    assert_eq!(swapped["results"][0], json!({ "type": "block.swap", "id": "section-3", "target": "section-1" }));
+    assert_eq!(revision_of(&swapped), revision_of(&seeded) + 1);
+    let sections = swapped["document"]["sections"].as_array().expect("sections");
+    assert_eq!(sections[0]["title"], json!("Alpha"));
+    assert_eq!(sections[1]["title"], json!("Zeta"));
+    assert_eq!(swapped["document"]["paragraphs"][0]["sectionIndex"], json!(0), "the child travels with its section");
+
+    let back = edit(handle, &json!({ "operations": [{ "type": "block.swap", "id": "section-1", "target": "section-3" }] }))
+        .expect("swap back");
+    let sections = back["document"]["sections"].as_array().expect("sections");
+    assert_eq!(sections[0]["title"], json!("Zeta"));
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn block_swap_rejects_same_nested_and_unknown_blocks() {
+    let created = create(&json!({ "title": "Swap errors" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "heading.append", "level": 1, "text": "Alpha" },
+        { "type": "heading.append", "level": 1, "text": "Beta" },
+        { "type": "paragraph.append", "text": "Child" },
+    ] }))
+    .expect("seed blocks");
+    let before = revision_of(&summary(handle).expect("summary"));
+
+    let same = edit(handle, &json!({ "operations": [{ "type": "block.swap", "id": "section-1", "target": "section-1" }] }))
+        .expect_err("a block cannot swap with itself");
+    assert_eq!(same.code, "session/argument-invalid");
+
+    let missing = edit(handle, &json!({ "operations": [{ "type": "block.swap", "id": "section-1", "target": "section-999" }] }))
+        .expect_err("unknown target");
+    assert_eq!(missing.code, "object/not-found");
+
+    let nested = edit(handle, &json!({ "operations": [{ "type": "block.swap", "id": "node-3", "target": "section-1" }] }))
+        .expect_err("a nested block is not top-level");
+    assert_eq!(nested.code, "session/argument-invalid");
+
+    let bad_address = edit(handle, &json!({ "operations": [{ "type": "block.swap", "id": "section-1", "target": "nonsense" }] }))
+        .expect_err("the target must be a block address");
+    assert_eq!(bad_address.code, "session/argument-invalid");
+
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed swaps consume no revision");
+
+    close(handle).expect("close");
+}

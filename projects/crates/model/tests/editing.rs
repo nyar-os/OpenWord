@@ -2610,3 +2610,53 @@ fn table_transpose_rejects_spans_and_missing_tables() {
 
     close(handle).expect("close");
 }
+
+#[test]
+fn list_reverse_items_flips_order_and_keeps_numbering_and_nesting() {
+    let workspace = Workspace::new("listreverse");
+    let created = create(&json!({ "title": "Reverse" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "list.append", "items": ["one", "two", "three"] },
+        { "type": "list.append", "items": ["a", "b", "c"], "ordered": true, "start": 3 },
+    ] }))
+    .expect("seed lists");
+    edit(handle, &json!({ "operations": [{ "type": "list.indentItem", "id": "node-1", "item": 1 }] }))
+        .expect("nest two under one");
+
+    let reversed = edit(handle, &json!({ "operations": [{ "type": "list.reverseItems", "id": "node-1" }] }))
+        .expect("reverse the bullet list");
+    assert_eq!(reversed["results"][0], json!({ "type": "list.reverseItems", "id": "node-1", "items": 2 }));
+
+    let ordered = edit(handle, &json!({ "operations": [{ "type": "list.reverseItems", "id": "node-2" }] }))
+        .expect("reverse the ordered list");
+    assert_eq!(ordered["results"][0], json!({ "type": "list.reverseItems", "id": "node-2", "items": 3 }));
+
+    let exported = workspace.path("reversed.md");
+    export(handle, "md", &exported, false).expect("export markdown");
+    let text = fs::read_to_string(&exported).expect("read markdown");
+    assert!(text.contains("- three\n- one\n  - two\n"), "items flip and the nested run travels: {text}");
+    assert!(text.contains("3. c\n4. b\n5. a\n"), "the ordered run stays consecutive from its start: {text}");
+
+    close(handle).expect("close");
+}
+
+#[test]
+fn list_reverse_items_rejects_unknown_and_non_list_blocks() {
+    let created = create(&json!({ "title": "Reverse errors" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [{ "type": "paragraph.append", "text": "Body" }] })).expect("append paragraph");
+    let before = revision_of(&summary(handle).expect("summary"));
+
+    let missing = edit(handle, &json!({ "operations": [{ "type": "list.reverseItems", "id": "node-9" }] }))
+        .expect_err("unknown list");
+    assert_eq!(missing.code, "object/not-found");
+
+    let not_list = edit(handle, &json!({ "operations": [{ "type": "list.reverseItems", "id": "node-1" }] }))
+        .expect_err("a paragraph is not a list");
+    assert_eq!(not_list.code, "session/argument-invalid");
+
+    assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed reversals consume no revision");
+
+    close(handle).expect("close");
+}

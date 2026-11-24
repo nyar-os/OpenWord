@@ -347,6 +347,8 @@ export type EditOperation =
           /** Sorts ascending when true (the default); descending when false. */
           readonly ascending?: boolean;
       }
+    /** Flips the list's top-level items, keeping nested children attached; ordered lists renumber consecutively. */
+    | { readonly type: 'list.reverseItems'; readonly id: string }
     | {
           /** Nests one item under the item before it as a child list. */
           readonly type: 'list.indentItem';
@@ -608,7 +610,7 @@ export interface EditOperationResult {
     readonly case?: 'upper' | 'lower' | 'title';
     /** Text runs rewritten by `block.setTextCase`. */
     readonly changed?: number;
-    /** List items created by `list.append` or `taskList.append`, or the top-level count sorted by `list.sortItems`. */
+    /** List items created by `list.append` or `taskList.append`, or the top-level count sorted by `list.sortItems` or reversed by `list.reverseItems`. */
     readonly items?: number;
     /** Checked items created by `taskList.append`, or the state applied by `list.setItemTask`. */
     readonly checked?: number | boolean | null;

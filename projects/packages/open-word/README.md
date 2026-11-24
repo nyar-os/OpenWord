@@ -15,6 +15,8 @@ A session-oriented TypeScript API and the `open-word` CLI for creating, revising
 - **Review and delivery:** `inspect({ path }, { checks })`, `export({ format, target, overwrite })`
 - **CLI:** `open-word capabilities | create | open | save | inspect | find | stats | outline | edit | replace | template | undo | redo | merge | export | gui`
 
+The CLI `open` command prints a document summary and exits; it opens no window. `open-word gui` is the only GUI entry.
+
 An edit batch is validated as a whole before the first mutation, and each applied operation advances the revision once. `expectedRevision` rejects a stale write with `document/revision-conflict`.
 
 ## Example

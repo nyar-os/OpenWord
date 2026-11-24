@@ -2,7 +2,7 @@
 
 Concise reference for agents driving the `open-word` CLI or `@wae/open-word` SDK. Documents are authoritative; commands and flags below are taken from `src/cli.ts`, types from `src/types.ts`.
 
-- **GUI** (`open-word open <file>`, `open-word gui`): humans write, review pagination and adjust layout.
+- **GUI** (`open-word gui`): humans write, review pagination and adjust layout. The CLI `open` command is not a GUI entry — it prints a document summary and exits.
 - **SDK**: template filling, anchor-based edits, replacement rules, inspection, DOCX/PDF export and native-project save.
 - **Not delivered yet**: rendered page counts, page-number APIs, SVG/PNG/PDF renderers, and `dotx`/`dotm`/`doc`/`odt` import or export.
 
@@ -63,10 +63,11 @@ Start a user-facing session with one command:
 
 ```bash
 open-word create --out draft.docx --title "Account review" --overwrite
-open-word open draft.docx
+open-word open draft.docx    # prints the document summary; it opens no window
+open-word gui                # the only GUI entry
 ```
 
-Humans use the GUI (`open-word open`, `open-word gui`) for layout and pagination review. Agents fill templates, apply replacement rules and export through a TypeScript script; the CLI `edit` and `template` commands stay for compatibility but are no longer the recommended entry.
+Humans use the GUI (`open-word gui`) for layout and pagination review; `open-word open <file>` stays a read-only CLI summary. Agents fill templates, apply replacement rules and export through a TypeScript script; the CLI `edit` and `template` commands stay for compatibility but are no longer the recommended entry.
 
 ```ts
 import { OpenWord } from '@wae/open-word';
@@ -95,6 +96,15 @@ await reopened.dispose();
 ```
 
 Paginate the exported PDF rather than predicting page breaks from the document model; the engine has no page-count API. `inspect` accepts only the checks listed in the capability matrix.
+
+The workflow above ships as a runnable example with content assertions:
+
+```bash
+pnpm --filter @wae/open-word run build:test
+node projects/packages/open-word/dist-test/examples/offer-workflow.js
+```
+
+`projects/packages/open-word/examples/offer-workflow.ts` generates its own template fixture, delivers DOCX, review PDF and native project, then reopens every artifact and asserts placeholder replacement, the table grid, list items and the PDF page objects. CI runs it against a staged binding (`OPEN_WORD_NATIVE`), so the documented chain is executed, not just described.
 
 ## Edit-operation JSON
 

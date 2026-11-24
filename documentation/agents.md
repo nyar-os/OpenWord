@@ -167,7 +167,7 @@ node projects/packages/open-word/dist-test/examples/offer-workflow.js
 | `block.convert` | `id`, `to` (`paragraph`, `heading`, `quote`, `code` or `list`), `level` (required for `heading`), `language` (for `code`), `ordered` (for `list`); converts the block in place and echoes `from` and `to`; heading children and list items become top-level or following paragraphs; same-kind and unsupported pairs are rejected |
 | `block.swap` | `id`, `target` (both top-level block addresses); exchanges the two blocks' positions, subtrees travelling with them; same, nested or unknown blocks are rejected |
 | `block.setTextCase` | `id`, `case` (`upper`, `lower` or `title`); rewrites the block's own text only, so nested blocks and table cells keep theirs; returns `changed` run count |
-| `table.setCellSpan` | `table`, `row`, `column` (top-left grid column), `colspan`, `rowspan` (1–65535); keeps the content, `1x1` unmerges |
+| `table.setCellSpan` | `table`, `row`, `column` (top-left grid column), `colspan`, `rowspan` (1–65535); keeps the anchor's content and drops the cells the span covers in that row, `1x1` unmerges |
 | `table.setCell` | `table`, `row`, `column`, `text` |
 | `table.insertRow` | `table`, `row`, `cells?` (must match the grid width) |
 | `table.deleteRow` | `table`, `row` (last row rejected) |

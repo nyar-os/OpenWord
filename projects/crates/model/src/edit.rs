@@ -1807,8 +1807,10 @@ fn set_cell(graph: &mut DocumentGraph, table: usize, row: usize, column: usize, 
 
 /// Sets how many grid columns and rows one cell covers.
 ///
-/// The cell is addressed by its top-left grid position. Spans keep their
-/// content and children; setting a cell back to `1x1` unmerges it.
+/// The cell is addressed by its top-left grid position. The anchor keeps its
+/// content; the cells the span covers in that row are dropped together with
+/// their child blocks, so the row width and the grid stay consistent. Setting
+/// a cell back to `1x1` unmerges it.
 fn set_cell_span(
     graph: &mut DocumentGraph,
     table: usize,
@@ -1825,19 +1827,41 @@ fn set_cell_span(
     if column >= columns {
         return Err(crate::invalid(format!("`column` {column} is outside the table's {columns} grid columns")));
     }
-    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
-    let Block::Table { head, body, foot, .. } = &mut node.block
-    else {
-        unreachable!("the id was filtered to a table block");
+    let orphans = {
+        let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
+        let Block::Table { head, body, foot, .. } = &mut node.block
+        else {
+            unreachable!("the id was filtered to a table block");
+        };
+        let target = row_at(head, body, foot, row).expect("the row was validated");
+        let index = column_index(target, column);
+        if target.cells.get(index).is_none() {
+            return Err(crate::invalid(format!("`column` {column} is outside row {row}'s grid width")));
+        }
+        // A merge consumes the cells it covers: measured on the grid as it was
+        // before the stamp, every cell after the anchor whose start falls
+        // inside `column + colspan` leaves the row.
+        let span_end = column + colspan as usize;
+        let mut covered: Vec<usize> = Vec::new();
+        let mut grid = 0usize;
+        for (i, cell) in target.cells.iter().enumerate() {
+            let start = grid;
+            grid = grid.saturating_add(cell.colspan.max(1) as usize);
+            if i > index && start < span_end {
+                covered.push(i);
+            }
+        }
+        target.cells[index].colspan = colspan;
+        target.cells[index].rowspan = rowspan;
+        let orphans: Vec<NodeId> = covered.iter().flat_map(|i| target.cells[*i].children.clone()).collect();
+        for i in covered.into_iter().rev() {
+            target.cells.remove(i);
+        }
+        orphans
     };
-    let target = row_at(head, body, foot, row).expect("the row was validated");
-    let index = column_index(target, column);
-    let Some(cell) = target.cells.get_mut(index)
-    else {
-        return Err(crate::invalid(format!("`column` {column} is outside row {row}'s grid width")));
-    };
-    cell.colspan = colspan;
-    cell.rowspan = rowspan;
+    for id in orphans {
+        remove_block(graph, id)?;
+    }
     Ok(())
 }
 

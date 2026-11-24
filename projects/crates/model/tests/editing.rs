@@ -170,17 +170,17 @@ fn set_heading_level_relevels_only_the_addressed_section() {
     let not_heading =
         edit(handle, &json!({ "operations": [{ "type": "heading.setLevel", "id": paragraph_id, "level": 2 }] }))
             .expect_err("a paragraph is not a heading");
-    assert_eq!(not_heading.code, "session/argument-invalid");
+    assert_eq!(not_heading.code(), "session/argument-invalid");
 
     let missing =
         edit(handle, &json!({ "operations": [{ "type": "heading.setLevel", "id": "section-9999", "level": 2 }] }))
             .expect_err("missing heading");
-    assert_eq!(missing.code, "object/not-found");
+    assert_eq!(missing.code(), "object/not-found");
 
     let out_of_range =
         edit(handle, &json!({ "operations": [{ "type": "heading.setLevel", "id": overview_id, "level": 7 }] }))
             .expect_err("level is out of range");
-    assert_eq!(out_of_range.code, "session/argument-invalid");
+    assert_eq!(out_of_range.code(), "session/argument-invalid");
 
     close(handle).expect("close");
 }
@@ -214,12 +214,12 @@ fn set_heading_text_keeps_level_children_and_position() {
 
     let blank = edit(handle, &json!({ "operations": [{ "type": "heading.setText", "id": details_id, "text": "   " }] }))
         .expect_err("blank title");
-    assert_eq!(blank.code, "session/argument-invalid");
+    assert_eq!(blank.code(), "session/argument-invalid");
 
     let missing =
         edit(handle, &json!({ "operations": [{ "type": "heading.setText", "id": "section-9999", "text": "X" }] }))
             .expect_err("missing heading");
-    assert_eq!(missing.code, "object/not-found");
+    assert_eq!(missing.code(), "object/not-found");
 
     close(handle).expect("close");
 }
@@ -279,7 +279,7 @@ fn replace_text_rejects_invalid_patterns_and_conflicting_options() {
         json!({ "operations": [{ "type": "document.replaceText", "find": "a", "replace": "x", "regex": "yes" }] }),
     ] {
         let error = edit(handle, &request).expect_err("invalid pattern request");
-        assert_eq!(error.code, "session/argument-invalid", "{request}");
+        assert_eq!(error.code(), "session/argument-invalid", "{request}");
         assert_eq!(summary(handle).expect("summary"), before);
     }
 
@@ -324,7 +324,7 @@ fn removing_a_section_deletes_its_subtree() {
     let before = revision_of(&summary(handle).expect("summary"));
     let error = edit(handle, &json!({ "operations": [{ "type": "block.remove", "id": "node-999999" }] }))
         .expect_err("missing block must fail");
-    assert_eq!(error.code, "object/not-found");
+    assert_eq!(error.code(), "object/not-found");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -366,7 +366,7 @@ fn paragraph_insert_keeps_document_and_parent_order() {
     let before = revision_of(&summary(handle).expect("summary"));
     let error = edit(handle, &json!({ "operations": [{ "type": "paragraph.insert", "index": 99, "text": "late" }] }))
         .expect_err("out-of-range index must fail");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -412,7 +412,7 @@ fn table_set_cell_replaces_content_and_checks_bounds() {
         json!({ "type": "table.setCell", "table": 0, "row": 0, "column": 9, "text": "x" }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("out-of-range cell must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
@@ -453,7 +453,7 @@ fn table_set_caption_sets_trims_and_clears_the_caption() {
         json!({ "type": "table.setCaption" }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid caption must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
@@ -484,7 +484,7 @@ fn find_reports_character_offsets() {
     assert_eq!(limited.as_array().unwrap().len(), 1);
 
     let error = find(handle, "", None).expect_err("empty query must fail");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
 
     close(handle).expect("close");
 }
@@ -543,7 +543,7 @@ fn edits_bump_once_per_operation_and_reject_stale_batches() {
         }),
     )
     .expect_err("stale write must be rejected");
-    assert_eq!(stale.code, "document/revision-conflict");
+    assert_eq!(stale.code(), "document/revision-conflict");
 
     let before = summary(handle).expect("summary");
     let failed = edit(
@@ -556,7 +556,7 @@ fn edits_bump_once_per_operation_and_reject_stale_batches() {
         }),
     )
     .expect_err("a batch naming a missing block must fail as a whole");
-    assert_eq!(failed.code, "object/not-found");
+    assert_eq!(failed.code(), "object/not-found");
     let after = summary(handle).expect("summary");
     assert_eq!(revision_of(&after), revision_of(&before));
     assert_eq!(after, before);
@@ -642,7 +642,7 @@ fn table_row_and_column_edits_keep_the_grid_consistent() {
         json!({ "type": "table.insertRow", "table": 0, "row": 1, "cells": ["only-one"] }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid table edit must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
 
     let failed = edit(
@@ -655,7 +655,7 @@ fn table_row_and_column_edits_keep_the_grid_consistent() {
         }),
     )
     .expect_err("a batch with one invalid row must fail as a whole");
-    assert_eq!(failed.code, "session/argument-invalid");
+    assert_eq!(failed.code(), "session/argument-invalid");
     assert_eq!(summary(handle).expect("summary"), before);
 
     close(handle).expect("close");
@@ -670,10 +670,10 @@ fn table_edits_reject_an_empty_grid() {
     let before = revision_of(&summary(handle).expect("summary"));
     let error = edit(handle, &json!({ "operations": [{ "type": "table.deleteRow", "table": 0, "row": 0 }] }))
         .expect_err("the last row cannot be deleted");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     let error = edit(handle, &json!({ "operations": [{ "type": "table.deleteColumn", "table": 0, "column": 0 }] }))
         .expect_err("the last column cannot be deleted");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     let column = edit(handle, &json!({ "operations": [{ "type": "table.insertColumn", "table": 0, "column": 1 }] }))
@@ -723,11 +723,11 @@ fn paragraph_update_replaces_text_and_keeps_the_paragraph() {
         json!({ "type": "paragraph.update", "index": 99, "text": "outside" }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid target must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     let error = edit(handle, &json!({ "operations": [{ "type": "paragraph.update", "id": "node-999999", "text": "x" }] }))
         .expect_err("unknown block id must fail");
-    assert_eq!(error.code, "object/not-found");
+    assert_eq!(error.code(), "object/not-found");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -756,13 +756,13 @@ fn block_move_keeps_section_subtrees_and_rejects_cycles() {
     let before = revision_of(&seeded);
     let error = edit(handle, &json!({ "operations": [{ "type": "block.move", "id": alpha, "index": 1 }] }))
         .expect_err("a section cannot move into its own subtree");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     let error = edit(handle, &json!({ "operations": [{ "type": "block.move", "id": "node-999999", "index": 0 }] }))
         .expect_err("unknown block id must fail");
-    assert_eq!(error.code, "object/not-found");
+    assert_eq!(error.code(), "object/not-found");
     let error = edit(handle, &json!({ "operations": [{ "type": "block.move", "id": alpha, "index": 99 }] }))
         .expect_err("out-of-range position must fail");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     let moved = edit(handle, &json!({ "operations": [{ "type": "block.move", "id": beta, "index": 0 }] }))
@@ -824,7 +824,7 @@ fn template_fill_replaces_known_placeholders_in_one_revision() {
         json!({ "operations": [{ "type": "template.fill", "values": "Ada" }] }),
     ] {
         let error = edit(handle, &invalid).expect_err("invalid values must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
@@ -877,10 +877,10 @@ fn list_and_quote_appends_extend_counts_and_export_markdown() {
     let before_error = revision_of(&summary(handle).expect("summary"));
     let error = edit(handle, &json!({ "operations": [{ "type": "list.append", "items": [] }] }))
         .expect_err("empty items must fail");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     let error = edit(handle, &json!({ "operations": [{ "type": "quote.append", "text": "" }] }))
         .expect_err("empty quote text must fail");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before_error);
 
     close(handle).expect("close");
@@ -922,7 +922,7 @@ fn task_list_append_records_check_state_and_exports_markers() {
         json!({ "operations": [{ "type": "taskList.append", "items": [{ "text": "x", "checked": "yes" }] }] }),
     ] {
         let error = edit(handle, &request).expect_err("invalid task list");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before_error);
 
@@ -975,7 +975,7 @@ fn code_append_adds_a_fenced_block_and_counts_it() {
         json!({ "type": "code.append", "text": "x", "language": 3 }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid code append must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before_error);
 
@@ -1023,7 +1023,7 @@ fn ordered_list_start_numbers_items_from_the_requested_value() {
         json!({ "type": "list.append", "ordered": true, "items": ["one"], "start": "2" }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid start must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
@@ -1064,10 +1064,10 @@ fn list_set_ordered_switches_markers_without_touching_items() {
         &json!({ "operations": [{ "type": "list.setOrdered", "id": "node-999999", "ordered": true }] }),
     )
     .expect_err("unknown block");
-    assert_eq!(wrong_block.code, "object/not-found");
+    assert_eq!(wrong_block.code(), "object/not-found");
     let missing_flag =
         edit(handle, &json!({ "operations": [{ "type": "list.setOrdered", "id": id }] })).expect_err("missing ordered");
-    assert_eq!(missing_flag.code, "session/argument-invalid");
+    assert_eq!(missing_flag.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -1100,7 +1100,7 @@ fn list_set_start_renumbers_an_ordered_list() {
     let before = revision_of(&summary(handle).expect("summary"));
     let unordered =
         edit(handle, &json!({ "operations": [{ "type": "list.setStart", "id": id, "start": 2 }] })).expect_err("bullets");
-    assert_eq!(unordered.code, "session/argument-invalid");
+    assert_eq!(unordered.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -1186,7 +1186,7 @@ fn table_set_cell_span_merges_and_unmerges_one_cell() {
         json!({ "type": "table.setCellSpan", "table": 0, "row": 0, "column": 0, "colspan": 1, "rowspan": 0 }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid span must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(summary(handle).expect("summary"), before);
 
@@ -1227,7 +1227,7 @@ fn code_set_language_retags_a_block_and_can_clear_it() {
     let wrong_block =
         edit(handle, &json!({ "operations": [{ "type": "code.setLanguage", "id": "node-999999" }] }))
             .expect_err("unknown block");
-    assert_eq!(wrong_block.code, "object/not-found");
+    assert_eq!(wrong_block.code(), "object/not-found");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -1362,9 +1362,9 @@ fn block_duplicate_rejects_unknown_ids_and_bumps_one_revision() {
 
     let error = edit(handle, &json!({ "operations": [{ "type": "block.duplicate", "id": "node-999999" }] }))
         .expect_err("unknown block must fail");
-    assert_eq!(error.code, "object/not-found");
+    assert_eq!(error.code(), "object/not-found");
     let error = edit(handle, &json!({ "operations": [{ "type": "block.duplicate" }] })).expect_err("missing id must fail");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     let unchanged = summary(handle).expect("summary");
     assert_eq!(revision_of(&unchanged), before);
     assert_eq!(unchanged, seeded);
@@ -1476,13 +1476,13 @@ fn quote_set_text_replaces_the_quote_content_in_place() {
     let before = revision_of(&summary(handle).expect("summary"));
     let missing = edit(handle, &json!({ "operations": [{ "type": "quote.setText", "id": "node-999999", "text": "x" }] }))
         .expect_err("unknown block");
-    assert_eq!(missing.code, "object/not-found");
+    assert_eq!(missing.code(), "object/not-found");
     let wrong = edit(handle, &json!({ "operations": [{ "type": "quote.setText", "id": "node-3", "text": "x" }] }))
         .expect_err("the replacement paragraph child is not a quote");
-    assert_eq!(wrong.code, "session/argument-invalid");
+    assert_eq!(wrong.code(), "session/argument-invalid");
     let empty = edit(handle, &json!({ "operations": [{ "type": "quote.setText", "id": "node-2", "text": "" }] }))
         .expect_err("empty text must fail");
-    assert_eq!(empty.code, "session/argument-invalid");
+    assert_eq!(empty.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -1512,10 +1512,10 @@ fn code_set_text_rewrites_the_source_and_keeps_the_tag() {
     let before = revision_of(&summary(handle).expect("summary"));
     let missing = edit(handle, &json!({ "operations": [{ "type": "code.setText", "id": "node-999999", "text": "x" }] }))
         .expect_err("unknown block");
-    assert_eq!(missing.code, "object/not-found");
+    assert_eq!(missing.code(), "object/not-found");
     let empty = edit(handle, &json!({ "operations": [{ "type": "code.setText", "id": "node-1", "text": "" }] }))
         .expect_err("empty text must fail");
-    assert_eq!(empty.code, "session/argument-invalid");
+    assert_eq!(empty.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -1555,7 +1555,7 @@ fn heading_insert_lands_before_the_addressed_block() {
         json!({ "type": "heading.insert", "index": 0, "level": 7, "text": "Top" }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid heading insert must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
@@ -1604,7 +1604,7 @@ fn table_row_moves_and_duplicates_copy_across_the_bands() {
         json!({ "type": "table.duplicateRow", "table": 9, "row": 0 }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid table address must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
@@ -1654,7 +1654,7 @@ fn table_column_moves_and_duplicates_copy_across_each_row() {
         json!({ "type": "table.duplicateColumn", "table": 9, "column": 0 }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid column address must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
@@ -1663,7 +1663,7 @@ fn table_column_moves_and_duplicates_copy_across_each_row() {
         .expect("span the header");
     let spanned = edit(handle, &json!({ "operations": [{ "type": "table.moveColumn", "table": 0, "column": 0, "index": 1 }] }))
         .expect_err("a spanned table is refused");
-    assert_eq!(spanned.code, "session/argument-invalid");
+    assert_eq!(spanned.code(), "session/argument-invalid");
 
     close(handle).expect("close");
 }
@@ -1723,19 +1723,19 @@ fn list_item_edits_replace_insert_and_remove_items_in_place() {
     let before = revision_of(&summary(handle).expect("summary"));
     let missing = edit(handle, &json!({ "operations": [{ "type": "list.setItem", "id": "node-999999", "item": 0, "text": "x" }] }))
         .expect_err("unknown block");
-    assert_eq!(missing.code, "object/not-found");
+    assert_eq!(missing.code(), "object/not-found");
     let not_a_list = edit(handle, &json!({ "operations": [{ "type": "list.setItem", "id": heading_id, "item": 0, "text": "x" }] }))
         .expect_err("a paragraph is not a list");
-    assert_eq!(not_a_list.code, "session/argument-invalid");
+    assert_eq!(not_a_list.code(), "session/argument-invalid");
     let out_of_range = edit(handle, &json!({ "operations": [{ "type": "list.setItem", "id": "node-4", "item": 9, "text": "x" }] }))
         .expect_err("index outside the run");
-    assert_eq!(out_of_range.code, "session/argument-invalid");
+    assert_eq!(out_of_range.code(), "session/argument-invalid");
     let last_item = edit(handle, &json!({ "operations": [{ "type": "list.removeItem", "id": "node-4", "item": 0 }] }))
         .expect_err("the last item cannot be removed");
-    assert_eq!(last_item.code, "session/argument-invalid");
+    assert_eq!(last_item.code(), "session/argument-invalid");
     let blank = edit(handle, &json!({ "operations": [{ "type": "list.setItem", "id": "node-4", "item": 0, "text": "  " }] }))
         .expect_err("blank text must fail");
-    assert_eq!(blank.code, "session/argument-invalid");
+    assert_eq!(blank.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -1785,13 +1785,13 @@ fn task_items_toggle_and_list_items_move_in_place() {
     let not_a_task =
         edit(handle, &json!({ "operations": [{ "type": "list.setItemChecked", "id": "node-2", "item": 0, "checked": true }] }))
             .expect_err("an ordered list has no check state");
-    assert_eq!(not_a_task.code, "session/argument-invalid");
+    assert_eq!(not_a_task.code(), "session/argument-invalid");
     let out_of_range = edit(handle, &json!({ "operations": [{ "type": "list.moveItem", "id": "node-1", "item": 0, "index": 9 }] }))
         .expect_err("index outside the run");
-    assert_eq!(out_of_range.code, "session/argument-invalid");
+    assert_eq!(out_of_range.code(), "session/argument-invalid");
     let missing_checked = edit(handle, &json!({ "operations": [{ "type": "list.setItemChecked", "id": "node-1", "item": 0 }] }))
         .expect_err("a missing boolean must fail");
-    assert_eq!(missing_checked.code, "session/argument-invalid");
+    assert_eq!(missing_checked.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -1835,10 +1835,10 @@ fn list_items_indent_under_the_previous_sibling() {
     let before = revision_of(&summary(handle).expect("summary"));
     let first = edit(handle, &json!({ "operations": [{ "type": "list.indentItem", "id": "node-1", "item": 0 }] }))
         .expect_err("the first item cannot nest");
-    assert_eq!(first.code, "session/argument-invalid");
+    assert_eq!(first.code(), "session/argument-invalid");
     let out_of_range = edit(handle, &json!({ "operations": [{ "type": "list.indentItem", "id": "node-1", "item": 9 }] }))
         .expect_err("index outside the run");
-    assert_eq!(out_of_range.code, "session/argument-invalid");
+    assert_eq!(out_of_range.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -1880,10 +1880,10 @@ fn list_items_unindent_back_into_the_parent_run() {
     let before = revision_of(&summary(handle).expect("summary"));
     let plain = edit(handle, &json!({ "operations": [{ "type": "list.unindentItem", "id": "node-1", "item": 0 }] }))
         .expect_err("a flat item has nothing to lift");
-    assert_eq!(plain.code, "session/argument-invalid");
+    assert_eq!(plain.code(), "session/argument-invalid");
     let out_of_range = edit(handle, &json!({ "operations": [{ "type": "list.unindentItem", "id": "node-1", "item": 7 }] }))
         .expect_err("index outside the run");
-    assert_eq!(out_of_range.code, "session/argument-invalid");
+    assert_eq!(out_of_range.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -1926,9 +1926,9 @@ fn list_items_move_between_lists_and_renumber_both_runs() {
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("bad cross-list move");
         assert!(
-            error.code == "session/argument-invalid" || error.code == "object/not-found",
+            error.code() == "session/argument-invalid" || error.code() == "object/not-found",
             "unexpected code: {}",
-            error.code
+            error.code()
         );
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed moves consume no revision");
@@ -1969,7 +1969,7 @@ fn list_items_duplicate_with_their_nested_children() {
     let before = revision_of(&summary(handle).expect("summary"));
     let out_of_range = edit(handle, &json!({ "operations": [{ "type": "list.duplicateItem", "id": "node-1", "item": 9 }] }))
         .expect_err("index outside the run");
-    assert_eq!(out_of_range.code, "session/argument-invalid");
+    assert_eq!(out_of_range.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     close(handle).expect("close");
@@ -2015,7 +2015,7 @@ fn list_items_sort_by_text_and_keep_their_nested_children() {
     let before = revision_of(&summary(handle).expect("summary"));
     let missing =
         edit(handle, &json!({ "operations": [{ "type": "list.sortItems", "id": "node-9" }] })).expect_err("unknown list");
-    assert_eq!(missing.code, "object/not-found");
+    assert_eq!(missing.code(), "object/not-found");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed sorts consume no revision");
 
     close(handle).expect("close");
@@ -2080,11 +2080,11 @@ fn block_text_case_rewrites_paragraph_and_heading_text() {
     let before = revision_of(&summary(handle).expect("summary"));
     let unknown_case = edit(handle, &json!({ "operations": [{ "type": "block.setTextCase", "id": paragraph, "case": "wide" }] }))
         .expect_err("unknown case");
-    assert_eq!(unknown_case.code, "session/argument-invalid");
+    assert_eq!(unknown_case.code(), "session/argument-invalid");
     let unknown_block =
         edit(handle, &json!({ "operations": [{ "type": "block.setTextCase", "id": "node-999", "case": "upper" }] }))
             .expect_err("unknown block");
-    assert_eq!(unknown_block.code, "object/not-found");
+    assert_eq!(unknown_block.code(), "object/not-found");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed casing consumes no revision");
 
     close(handle).expect("close");
@@ -2138,7 +2138,7 @@ fn table_set_footer_writes_and_clears_the_footer_band() {
         json!({ "type": "table.setFooter", "table": 0, "cells": [7] }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid footer must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
@@ -2183,7 +2183,7 @@ fn list_items_become_tasks_and_revert_to_plain_items() {
         json!({ "type": "list.setItemTask", "id": "node-999", "item": 0, "task": true }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid item task must fail");
-        assert_ne!(error.code, "");
+        assert_ne!(error.code(), "");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
@@ -2238,7 +2238,7 @@ fn metadata_set_writes_language_and_tags() {
         json!({ "type": "metadata.set", "tags": [" "] }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid metadata must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
@@ -2298,12 +2298,12 @@ fn table_rows_sort_by_numeric_and_text_keys() {
         { "type": "table.sortRows", "table": 0, "column": 0 },
     ] }))
     .expect_err("vertical merges block sorting");
-    assert_eq!(merged.code, "session/argument-invalid");
+    assert_eq!(merged.code(), "session/argument-invalid");
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
     let missing = edit(handle, &json!({ "operations": [{ "type": "table.sortRows", "table": 9, "column": 0 }] }))
         .expect_err("unknown table");
-    assert_eq!(missing.code, "session/argument-invalid");
+    assert_eq!(missing.code(), "session/argument-invalid");
 
     close(handle).expect("close");
 }
@@ -2367,7 +2367,7 @@ fn table_bands_accept_multiple_header_and_footer_rows() {
         json!({ "type": "table.setFooterRows", "table": 9, "rows": [["a"]] }),
     ] {
         let error = edit(handle, &json!({ "operations": [operation] })).expect_err("invalid band must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
     }
     assert_eq!(revision_of(&summary(handle).expect("summary")), before);
 
@@ -2453,35 +2453,35 @@ fn block_convert_rejects_unknown_ids_same_kinds_and_bad_arguments() {
     let missing =
         edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-999", "to": "heading", "level": 1 }] }))
             .expect_err("unknown id");
-    assert_eq!(missing.code, "object/not-found");
+    assert_eq!(missing.code(), "object/not-found");
 
     let same = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "paragraph" }] }))
         .expect_err("same kind");
-    assert_eq!(same.code, "session/argument-invalid");
+    assert_eq!(same.code(), "session/argument-invalid");
 
     let table = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-4", "to": "paragraph" }] }))
         .expect_err("a table is not convertible");
-    assert_eq!(table.code, "session/argument-invalid");
+    assert_eq!(table.code(), "session/argument-invalid");
 
     let no_level = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "heading" }] }))
         .expect_err("heading conversion needs a level");
-    assert_eq!(no_level.code, "session/argument-invalid");
+    assert_eq!(no_level.code(), "session/argument-invalid");
 
     let bad_level = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "heading", "level": 7 }] }))
         .expect_err("level out of range");
-    assert_eq!(bad_level.code, "session/argument-invalid");
+    assert_eq!(bad_level.code(), "session/argument-invalid");
 
     let bad_kind = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "table" }] }))
         .expect_err("unsupported target kind");
-    assert_eq!(bad_kind.code, "session/argument-invalid");
+    assert_eq!(bad_kind.code(), "session/argument-invalid");
 
     let stray = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "node-1", "to": "quote", "level": 2 }] }))
         .expect_err("level is only valid for heading targets");
-    assert_eq!(stray.code, "session/argument-invalid");
+    assert_eq!(stray.code(), "session/argument-invalid");
 
     let bad_pair = edit(handle, &json!({ "operations": [{ "type": "block.convert", "id": "section-5", "to": "code" }] }))
         .expect_err("heading to code is not a supported pair");
-    assert_eq!(bad_pair.code, "session/argument-invalid");
+    assert_eq!(bad_pair.code(), "session/argument-invalid");
 
     assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed conversions consume no revision");
 
@@ -2533,19 +2533,19 @@ fn block_swap_rejects_same_nested_and_unknown_blocks() {
 
     let same = edit(handle, &json!({ "operations": [{ "type": "block.swap", "id": "section-1", "target": "section-1" }] }))
         .expect_err("a block cannot swap with itself");
-    assert_eq!(same.code, "session/argument-invalid");
+    assert_eq!(same.code(), "session/argument-invalid");
 
     let missing = edit(handle, &json!({ "operations": [{ "type": "block.swap", "id": "section-1", "target": "section-999" }] }))
         .expect_err("unknown target");
-    assert_eq!(missing.code, "object/not-found");
+    assert_eq!(missing.code(), "object/not-found");
 
     let nested = edit(handle, &json!({ "operations": [{ "type": "block.swap", "id": "node-3", "target": "section-1" }] }))
         .expect_err("a nested block is not top-level");
-    assert_eq!(nested.code, "session/argument-invalid");
+    assert_eq!(nested.code(), "session/argument-invalid");
 
     let bad_address = edit(handle, &json!({ "operations": [{ "type": "block.swap", "id": "section-1", "target": "nonsense" }] }))
         .expect_err("the target must be a block address");
-    assert_eq!(bad_address.code, "session/argument-invalid");
+    assert_eq!(bad_address.code(), "session/argument-invalid");
 
     assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed swaps consume no revision");
 
@@ -2600,11 +2600,11 @@ fn table_transpose_rejects_spans_and_missing_tables() {
 
     let spanning = edit(handle, &json!({ "operations": [{ "type": "table.transpose", "table": 0 }] }))
         .expect_err("spanning cells cannot be transposed");
-    assert_eq!(spanning.code, "session/argument-invalid");
+    assert_eq!(spanning.code(), "session/argument-invalid");
 
     let missing = edit(handle, &json!({ "operations": [{ "type": "table.transpose", "table": 5 }] }))
         .expect_err("no table at that index");
-    assert_eq!(missing.code, "session/argument-invalid");
+    assert_eq!(missing.code(), "session/argument-invalid");
 
     assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed transposes consume no revision");
 
@@ -2650,11 +2650,11 @@ fn list_reverse_items_rejects_unknown_and_non_list_blocks() {
 
     let missing = edit(handle, &json!({ "operations": [{ "type": "list.reverseItems", "id": "node-9" }] }))
         .expect_err("unknown list");
-    assert_eq!(missing.code, "object/not-found");
+    assert_eq!(missing.code(), "object/not-found");
 
     let not_list = edit(handle, &json!({ "operations": [{ "type": "list.reverseItems", "id": "node-1" }] }))
         .expect_err("a paragraph is not a list");
-    assert_eq!(not_list.code, "session/argument-invalid");
+    assert_eq!(not_list.code(), "session/argument-invalid");
 
     assert_eq!(revision_of(&summary(handle).expect("summary")), before, "failed reversals consume no revision");
 

@@ -53,10 +53,10 @@ pub(crate) fn load(path: &Path) -> Result<Entry, ServiceError> {
         "oword" => {
             let bytes = read(path)?;
             let mut envelope: DocumentEnvelope = serde_json::from_slice(&bytes)
-                .map_err(|error| ServiceError::new("format/invalid", format!("{label} is not an OpenWord project: {error}")))?;
+                .map_err(|error| ServiceError::invalid("oword", format!("{label} is not an OpenWord project: {error}")))?;
             envelope
                 .ensure_supported()
-                .map_err(|_| ServiceError::new("format/invalid", format!("{label} uses an unsupported document schema")))?;
+                .map_err(|_| ServiceError::invalid("oword", format!("{label} uses an unsupported document schema")))?;
             envelope.document.id = store::next_document_id();
             Ok(Entry::new(envelope.document, Source::Project))
         }
@@ -95,10 +95,7 @@ pub(crate) fn load(path: &Path) -> Result<Entry, ServiceError> {
             graph.id = store::next_document_id();
             Ok(Entry::new(graph, Source::Other("pdf")))
         }
-        other => Err(ServiceError::new(
-            "format/unsupported",
-            format!("`{}` has no import route in this build", if other.is_empty() { label.as_str() } else { other }),
-        )),
+        other => Err(ServiceError::unsupported(if other.is_empty() { label.as_str() } else { other })),
     }
 }
 
@@ -106,7 +103,7 @@ pub(crate) fn load(path: &Path) -> Result<Entry, ServiceError> {
 pub(crate) fn save_graph(graph: &DocumentGraph, path: &Path, overwrite: bool) -> Result<SaveOutcome, ServiceError> {
     let envelope = DocumentEnvelope::new(graph.clone());
     let bytes = serde_json::to_vec(&envelope)
-        .map_err(|error| ServiceError::new("format/invalid", format!("failed to serialize the project: {error}")))?;
+        .map_err(|error| ServiceError::invalid("oword", format!("failed to serialize the project: {error}")))?;
     write_atomically(path, &bytes, overwrite)?;
     Ok(SaveOutcome { revision: graph.revision, bytes: bytes.len() })
 }
@@ -132,7 +129,7 @@ pub(crate) fn export_graph(graph: &DocumentGraph, format: &str, target: &Path, o
             (report.text.into_bytes(), true, losses)
         }
         other => {
-            return Err(ServiceError::new("format/unsupported", format!("`{other}` has no export route in this build")));
+            return Err(ServiceError::unsupported(other));
         }
     };
 
@@ -248,12 +245,11 @@ fn cell_text(graph: &DocumentGraph, cell: &TableCell) -> String {
 }
 
 fn read(path: &Path) -> Result<Vec<u8>, ServiceError> {
-    fs::read(path).map_err(|error| ServiceError::new("format/invalid", format!("failed to read {}: {error}", path.display())))
+    fs::read(path).map_err(|error| ServiceError::io_read(path, error))
 }
 
 fn read_text(path: &Path) -> Result<String, ServiceError> {
-    fs::read_to_string(path)
-        .map_err(|error| ServiceError::new("format/invalid", format!("failed to read {} as text: {error}", path.display())))
+    fs::read_to_string(path).map_err(|error| ServiceError::io_read(path, error))
 }
 
 fn format_failure(error: FormatError) -> ServiceError {
@@ -263,19 +259,18 @@ fn format_failure(error: FormatError) -> ServiceError {
         FormatError::Budget { .. } => "session/budget-exceeded",
         FormatError::InvalidInput { .. } | FormatError::Parse { .. } => "format/invalid",
     };
-    ServiceError::new(code, message)
+    ServiceError::forward(code, message)
 }
 
 fn write_atomically(path: &Path, bytes: &[u8], overwrite: bool) -> Result<(), ServiceError> {
     if path.exists() && !overwrite {
-        return Err(crate::invalid(format!("{} already exists; pass overwrite to replace it", path.display())));
+        return Err(ServiceError::io_exists(path));
     }
     let options = PublishOptions {
         overwrite: if overwrite { OverwritePolicy::Replace } else { OverwritePolicy::RefuseExisting },
         ..PublishOptions::default()
     };
-    publish_bytes_with_options(publish_target(path), bytes, options)
-        .map_err(|error| ServiceError::new("format/invalid", format!("failed to write {}: {error}", path.display())))
+    publish_bytes_with_options(publish_target(path), bytes, options).map_err(|error| ServiceError::io_write(path, error.to_string()))
 }
 
 /// Keeps a bare file name anchored to the working directory so the publisher

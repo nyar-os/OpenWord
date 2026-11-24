@@ -182,7 +182,7 @@ fn invalid_requests_and_stale_revisions_leave_the_document_untouched() {
     assert_eq!(revision_of(&before), 0);
 
     let missing = replace(999_999, &json!({ "find": "a", "replace": "b" })).expect_err("unknown handle");
-    assert_eq!(missing.code, "document/not-found");
+    assert_eq!(missing.code(), "document/not-found");
 
     for request in [
         json!({ "find": "", "replace": "x" }),
@@ -200,13 +200,13 @@ fn invalid_requests_and_stale_revisions_leave_the_document_untouched() {
         json!({ "find": "a", "replace": "x", "expectedRevision": -1 }),
     ] {
         let error = replace(handle, &request).expect_err("invalid request must fail");
-        assert_eq!(error.code, "session/argument-invalid", "{request}");
+        assert_eq!(error.code(), "session/argument-invalid", "{request}");
     }
     assert_eq!(summary(handle).expect("summary"), before);
 
     let stale = replace(handle, &json!({ "find": "alpha", "replace": "x", "expectedRevision": 7 }))
         .expect_err("stale revision must fail");
-    assert_eq!(stale.code, "document/revision-conflict");
+    assert_eq!(stale.code(), "document/revision-conflict");
     assert_eq!(summary(handle).expect("summary"), before);
 
     let absent = replace(handle, &json!({ "find": "absent", "replace": "x" })).expect("no match");
@@ -214,7 +214,7 @@ fn invalid_requests_and_stale_revisions_leave_the_document_untouched() {
     assert_eq!(absent["affected"], json!([]));
     assert_eq!(revision_of(&absent), 0);
     let error = undo(handle, None).expect_err("a no-op replacement records no history");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
 
     close(handle).expect("close");
 }

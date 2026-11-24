@@ -168,12 +168,12 @@ fn edits_advance_the_revision_and_reject_stale_writes() {
         }),
     )
     .expect_err("stale write must be rejected");
-    assert_eq!(stale.code, "document/revision-conflict");
+    assert_eq!(stale.code(), "document/revision-conflict");
     assert_eq!(summary(document_handle).unwrap()["revision"], json!(4));
 
     let unknown = edit(document_handle, &json!({ "operations": [{ "type": "paragraph.remove", "text": "x" }] }))
         .expect_err("unknown operation must be rejected");
-    assert_eq!(unknown.code, "object/unsupported");
+    assert_eq!(unknown.code(), "object/unsupported");
 
     close(document_handle).expect("close");
 }

@@ -26,18 +26,22 @@ use wae::{
 };
 
 fn failure_of(error: open_word_document::ServiceError) -> Error {
-    Error::new(format!("{}: {}", error.code, error.message))
+    let mut mapped = Error::new(error.message().to_owned()).code(error.code().to_owned());
+    if !error.params().is_null() {
+        mapped = mapped.detail(json!({ "params": error.params() }));
+    }
+    mapped
 }
 
 fn argument(ctx: &CallContext, index: usize) -> Result<JsValue> {
-    ctx.args().get(index).copied().ok_or_else(|| Error::new("session/argument-invalid: a required argument is missing"))
+    ctx.args().get(index).copied().ok_or_else(|| Error::new("a required argument is missing").code("session/argument-invalid"))
 }
 
 fn handle(ctx: &CallContext, index: usize) -> Result<u64> {
     argument(ctx, index)?
         .as_i64()?
         .try_into()
-        .map_err(|_| Error::new("session/argument-invalid: `handle` must be a non-negative integer"))
+        .map_err(|_| Error::new("`handle` must be a non-negative integer").code("session/argument-invalid"))
 }
 
 fn text(ctx: &CallContext, index: usize) -> Result<String> {
@@ -48,7 +52,7 @@ fn optional_steps(ctx: &CallContext, index: usize) -> Result<Option<u32>> {
     match ctx.args().get(index).copied() {
         Some(value) if !value.is_undefined()? => {
             let raw = value.as_i64()?;
-            u32::try_from(raw).map(Some).map_err(|_| Error::new("session/argument-invalid: `steps` must be a positive integer"))
+            u32::try_from(raw).map(Some).map_err(|_| Error::new("`steps` must be a positive integer").code("session/argument-invalid"))
         }
         _ => Ok(None),
     }
@@ -77,7 +81,7 @@ fn capabilities(ctx: CallContext) -> Result<JsValue> {
 fn document_create(ctx: CallContext) -> Result<JsValue> {
     let raw = text(&ctx, 0)?;
     let request: Value =
-        serde_json::from_str(&raw).map_err(|error| Error::new(format!("session/argument-invalid: {error}")))?;
+        serde_json::from_str(&raw).map_err(|error| Error::new(error.to_string()).code("session/argument-invalid"))?;
     respond(&ctx, &open_word_document::create(&request).map_err(failure_of)?)
 }
 
@@ -105,7 +109,7 @@ fn document_inspect(ctx: CallContext) -> Result<JsValue> {
         Some(value) if !value.is_undefined()? => {
             let raw = value.as_string()?;
             let names: Vec<String> =
-                serde_json::from_str(&raw).map_err(|error| Error::new(format!("session/argument-invalid: {error}")))?;
+                serde_json::from_str(&raw).map_err(|error| Error::new(error.to_string()).code("session/argument-invalid"))?;
             Some(names)
         }
         _ => None,
@@ -144,7 +148,7 @@ fn document_find(ctx: CallContext) -> Result<JsValue> {
             let raw = value.as_i64()?;
             Some(
                 u32::try_from(raw)
-                    .map_err(|_| Error::new("session/argument-invalid: `limit` must be a non-negative integer"))?,
+                    .map_err(|_| Error::new("`limit` must be a non-negative integer").code("session/argument-invalid"))?,
             )
         }
         _ => None,
@@ -158,7 +162,7 @@ fn document_replace(ctx: CallContext) -> Result<JsValue> {
     let handle = handle(&ctx, 0)?;
     let raw = text(&ctx, 1)?;
     let request: Value =
-        serde_json::from_str(&raw).map_err(|error| Error::new(format!("session/argument-invalid: {error}")))?;
+        serde_json::from_str(&raw).map_err(|error| Error::new(error.to_string()).code("session/argument-invalid"))?;
     respond(&ctx, &open_word_document::replace(handle, &request).map_err(failure_of)?)
 }
 
@@ -168,7 +172,7 @@ fn document_edit(ctx: CallContext) -> Result<JsValue> {
     let handle = handle(&ctx, 0)?;
     let raw = text(&ctx, 1)?;
     let request: Value =
-        serde_json::from_str(&raw).map_err(|error| Error::new(format!("session/argument-invalid: {error}")))?;
+        serde_json::from_str(&raw).map_err(|error| Error::new(error.to_string()).code("session/argument-invalid"))?;
     respond(&ctx, &open_word_document::edit(handle, &request).map_err(failure_of)?)
 }
 
@@ -261,14 +265,14 @@ impl IpcHandler for WordIpcHandler {
             }
             "document.open" => match string_field(&value, "path") {
                 Some(path) => document_outcome(id, "openResult", open_word_document::open(Path::new(&path))),
-                None => failure(id, "documentError", "session/argument-invalid: `path` is required".to_string()),
+                None => failure(id, "documentError", argument_failure("`path` is required")),
             },
             "document.save" => match (handle_field(&value), string_field(&value, "path")) {
                 (Some(handle), Some(path)) => {
                     let overwrite = value.get("overwrite").and_then(Value::as_bool).unwrap_or(false);
                     document_outcome(id, "saveResult", open_word_document::save(handle, Path::new(&path), overwrite))
                 }
-                _ => failure(id, "documentError", "session/argument-invalid: `handle` and `path` are required".to_string()),
+                _ => failure(id, "documentError", argument_failure("`handle` and `path` are required")),
             },
             "document.inspect" => match handle_field(&value) {
                 Some(handle) => {
@@ -278,32 +282,32 @@ impl IpcHandler for WordIpcHandler {
                         .map(|names| names.iter().filter_map(Value::as_str).map(str::to_string).collect());
                     document_outcome(id, "inspectResult", open_word_document::inspect(handle, checks))
                 }
-                None => failure(id, "documentError", "session/argument-invalid: `handle` is required".to_string()),
+                None => failure(id, "documentError", argument_failure("`handle` is required")),
             },
             "document.summary" => match handle_field(&value) {
                 Some(handle) => document_outcome(id, "summaryResult", open_word_document::summary(handle)),
-                None => failure(id, "documentError", "session/argument-invalid: `handle` is required".to_string()),
+                None => failure(id, "documentError", argument_failure("`handle` is required")),
             },
             "document.find" => match (handle_field(&value), string_field(&value, "query")) {
                 (Some(handle), Some(query)) => {
                     let limit = value.get("limit").and_then(Value::as_u64).and_then(|value| u32::try_from(value).ok());
                     document_outcome(id, "findResult", open_word_document::find(handle, &query, limit))
                 }
-                _ => failure(id, "documentError", "session/argument-invalid: `handle` and `query` are required".to_string()),
+                _ => failure(id, "documentError", argument_failure("`handle` and `query` are required")),
             },
             "document.replace" => match handle_field(&value) {
                 Some(handle) => {
                     let request = value.get("request").cloned().unwrap_or(Value::Null);
                     document_outcome(id, "replaceResult", open_word_document::replace(handle, &request))
                 }
-                None => failure(id, "documentError", "session/argument-invalid: `handle` is required".to_string()),
+                None => failure(id, "documentError", argument_failure("`handle` is required")),
             },
             "document.edit" => match handle_field(&value) {
                 Some(handle) => {
                     let request = value.get("request").cloned().unwrap_or(Value::Null);
                     document_outcome(id, "editResult", open_word_document::edit(handle, &request))
                 }
-                None => failure(id, "documentError", "session/argument-invalid: `handle` is required".to_string()),
+                None => failure(id, "documentError", argument_failure("`handle` is required")),
             },
             "document.undo" | "document.redo" => match handle_field(&value) {
                 Some(handle) => {
@@ -320,18 +324,18 @@ impl IpcHandler for WordIpcHandler {
                     let kind = if ty == "document.undo" { "undoResult" } else { "redoResult" };
                     document_outcome(id, kind, result)
                 }
-                None => failure(id, "documentError", "session/argument-invalid: `handle` is required".to_string()),
+                None => failure(id, "documentError", argument_failure("`handle` is required")),
             },
             "document.merge" => match handle_field(&value) {
                 Some(handle) => {
                     let Some(path) = string_field(&value, "path")
                     else {
-                        return failure(id, "documentError", "session/argument-invalid: `path` is required".to_string());
+                        return failure(id, "documentError", argument_failure("`path` is required"));
                     };
                     let mode = string_field(&value, "mode");
                     document_outcome(id, "mergeResult", open_word_document::merge(handle, Path::new(&path), mode.as_deref()))
                 }
-                None => failure(id, "documentError", "session/argument-invalid: `handle` and `path` are required".to_string()),
+                None => failure(id, "documentError", argument_failure("`handle` and `path` are required")),
             },
             "document.export" => match (handle_field(&value), string_field(&value, "format"), string_field(&value, "target")) {
                 (Some(handle), Some(format), Some(target)) => {
@@ -342,22 +346,28 @@ impl IpcHandler for WordIpcHandler {
                         open_word_document::export(handle, &format, Path::new(&target), overwrite),
                     )
                 }
-                _ => failure(
-                    id,
-                    "documentError",
-                    "session/argument-invalid: `handle`, `format` and `target` are required".to_string(),
-                ),
+                _ => failure(id, "documentError", argument_failure("`handle`, `format` and `target` are required")),
             },
             "document.close" => match handle_field(&value) {
                 Some(handle) => match open_word_document::close(handle) {
                     Ok(()) => reply(id, "closeResult", json!({ "closed": true })),
-                    Err(error) => failure(id, "closeError", format!("{}: {}", error.code, error.message)),
+                    Err(error) => failure(id, "closeError", service_failure(error)),
                 },
-                None => failure(id, "closeError", "session/argument-invalid: `handle` is required".to_string()),
+                None => failure(id, "closeError", argument_failure("`handle` is required")),
             },
             _ => IpcOutcome::Ignored,
         }
     }
+}
+
+fn failure(id: Value, kind: &str, error: Value) -> IpcOutcome {
+    // The reply carries the verifiable `code` and typed `params` beside the
+    // display `message`, so the page can branch on the contract, not on prose.
+    let mut body = json!({ "message": error["message"].clone(), "code": error["code"].clone() });
+    if let Some(params) = error.get("params").filter(|params| !params.is_null()) {
+        body["params"] = params.clone();
+    }
+    reply(id, kind, body)
 }
 
 fn reply(id: Value, kind: &str, payload: Value) -> IpcOutcome {
@@ -367,8 +377,16 @@ fn reply(id: Value, kind: &str, payload: Value) -> IpcOutcome {
     IpcOutcome::ReplyToPage(body.to_string())
 }
 
-fn failure(id: Value, kind: &str, message: String) -> IpcOutcome {
-    reply(id, kind, json!({ "message": message }))
+fn service_failure(error: open_word_document::ServiceError) -> Value {
+    let mut payload = json!({ "code": error.code(), "message": error.message() });
+    if !error.params().is_null() {
+        payload["params"] = error.params().clone();
+    }
+    payload
+}
+
+fn argument_failure(message: &str) -> Value {
+    json!({ "code": "session/argument-invalid", "message": message })
 }
 
 fn document_outcome(id: Value, kind: &str, result: std::result::Result<Value, open_word_document::ServiceError>) -> IpcOutcome {
@@ -377,7 +395,7 @@ fn document_outcome(id: Value, kind: &str, result: std::result::Result<Value, op
             let payload = if matches!(kind, "createResult" | "openResult") { value } else { json!({ "report": value }) };
             reply(id, kind, payload)
         }
-        Err(error) => failure(id, "documentError", format!("{}: {}", error.code, error.message)),
+        Err(error) => failure(id, "documentError", service_failure(error)),
     }
 }
 
@@ -389,14 +407,14 @@ fn handle_field(value: &Value) -> Option<u64> {
     value.get("handle").and_then(Value::as_u64)
 }
 
-fn optional_steps_field(value: &Value) -> std::result::Result<Option<u32>, String> {
+fn optional_steps_field(value: &Value) -> std::result::Result<Option<u32>, Value> {
     match value.get("steps") {
         None | Some(Value::Null) => Ok(None),
         Some(steps) => steps
             .as_u64()
             .and_then(|raw| u32::try_from(raw).ok())
             .map(Some)
-            .ok_or_else(|| "session/argument-invalid: `steps` must be a positive integer".to_string()),
+            .ok_or_else(|| argument_failure("`steps` must be a positive integer")),
     }
 }
 

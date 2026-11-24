@@ -226,5 +226,5 @@ fn rejects_a_non_rtf_file() {
     let path = workspace.path("notes.rtf");
     fs::write(&path, "not an rtf document").expect("write text");
     let error = open(&path).expect_err("non-rtf input must fail");
-    assert_eq!(error.code, "format/invalid");
+    assert_eq!(error.code(), "format/invalid");
 }

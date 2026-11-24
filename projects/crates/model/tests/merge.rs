@@ -168,13 +168,13 @@ fn merge_rejects_unknown_modes_formats_and_handles() {
     let before = summary(handle).expect("summary");
 
     let error = merge(handle, &donor, Some("prepend")).expect_err("only append is supported");
-    assert_eq!(error.code, "object/unsupported");
+    assert_eq!(error.code(), "object/unsupported");
     let error = merge(handle, &unknown, None).expect_err("unknown formats are rejected");
-    assert_eq!(error.code, "format/unsupported");
+    assert_eq!(error.code(), "format/unsupported");
     assert_eq!(summary(handle).expect("summary"), before);
 
     let error = merge(999_999, &donor, None).expect_err("unknown handles are rejected");
-    assert_eq!(error.code, "document/not-found");
+    assert_eq!(error.code(), "document/not-found");
 
     close(handle).expect("close");
 }

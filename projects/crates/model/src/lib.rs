@@ -15,7 +15,7 @@ mod outline;
 mod replace;
 mod store;
 
-use std::{fmt, path::Path};
+use std::{fmt, io, path::Path};
 
 use document_ir::DocumentGraph;
 use serde_json::{Map, Value, json};
@@ -56,18 +56,133 @@ const RENDER_FORMATS: &[&str] = &["svg", "png", "pdf"];
 const EXPORT_TARGETS: &[&str] = &["docx", "dotx", "pdf", "html", "md", "txt", "rtf"];
 
 /// Stable failure of one binding operation.
+///
+/// Construction goes through the typed constructors below: each one fixes a
+/// stable code and attaches the parameters that code's contract promises, so
+/// the binding forwards `code`, `params` and the original OS error instead of
+/// re-deriving them from prose. The free-form pair is crate-internal only, for
+/// forwarding upstream codes that already carry their own contract.
 #[derive(Debug)]
 pub struct ServiceError {
-    /// Stable, comparable code.
-    pub code: String,
-    /// Human-readable message; never carries binary payloads.
-    pub message: String,
+    code: String,
+    message: String,
+    params: Value,
+    source: Option<Box<dyn std::error::Error + Send + Sync>>,
 }
 
 impl ServiceError {
-    /// Builds a failure from a stable code and a message.
-    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into() }
+    fn build(code: &str, message: impl Into<String>) -> Self {
+        Self { code: code.to_owned(), message: message.into(), params: Value::Null, source: None }
+    }
+
+    fn with_params(mut self, params: Value) -> Self {
+        self.params = params;
+        self
+    }
+
+    fn source(mut self, error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        self.source = Some(Box::new(error));
+        self
+    }
+
+    /// Crate-internal forwarder for an upstream code that already carries its own contract.
+    pub(crate) fn forward(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self { code: code.into(), message: message.into(), params: Value::Null, source: None }
+    }
+
+    /// `session/argument-invalid`: a request parameter was rejected.
+    pub fn argument(message: impl Into<String>) -> Self {
+        Self::build("session/argument-invalid", message)
+    }
+
+    /// `document/not-found`: no live document has this handle.
+    pub fn document_not_found(handle: u64) -> Self {
+        Self::build("document/not-found", format!("no live document has handle {handle}")).with_params(json!({ "handle": handle }))
+    }
+
+    /// `document/revision-conflict`: the document moved past the expected revision.
+    pub fn revision_conflict(expected: u64, actual: u64) -> Self {
+        Self::build(
+            "document/revision-conflict",
+            format!("expected revision {expected} but the document is at revision {actual}"),
+        )
+        .with_params(json!({ "expected": expected, "actual": actual }))
+    }
+
+    /// `object/not-found`: the addressed object is absent from the document.
+    pub fn not_found(kind: &str, id: impl fmt::Display) -> Self {
+        let id = id.to_string();
+        Self::build("object/not-found", format!("`{kind}` `{id}` does not exist")).with_params(json!({ "kind": kind, "id": id }))
+    }
+
+    /// `object/not-found`: no block carries this id.
+    pub fn block_not_found(id: impl fmt::Display) -> Self {
+        let id = id.to_string();
+        Self::build("object/not-found", format!("no block has id {id}")).with_params(json!({ "kind": "block", "id": id }))
+    }
+
+    /// `object/unsupported`: the edit operation name is not implemented.
+    pub fn operation_unsupported(operation: &str) -> Self {
+        Self::build("object/unsupported", format!("edit operation `{operation}` is not supported"))
+            .with_params(json!({ "operation": "edit operation", "name": operation }))
+    }
+
+    /// `object/unsupported`: the merge mode is not implemented.
+    pub fn merge_mode_unsupported(mode: &str) -> Self {
+        Self::build("object/unsupported", format!("merge mode `{mode}` is not supported"))
+            .with_params(json!({ "operation": "merge mode", "name": mode }))
+    }
+
+    /// `format/invalid`: an input or serialization failed format validation.
+    pub fn invalid(format: &str, reason: impl Into<String>) -> Self {
+        let reason = reason.into();
+        Self::build("format/invalid", format!("`{format}` input is invalid: {reason}"))
+            .with_params(json!({ "format": format, "reason": reason }))
+    }
+
+    /// `format/unsupported`: the requested format has no route in this build.
+    pub fn unsupported(format: &str) -> Self {
+        Self::build("format/unsupported", format!("`{format}` has no route in this build")).with_params(json!({ "format": format }))
+    }
+
+    /// `session/budget-exceeded`: an upstream budget refused the operation.
+    pub fn budget(message: impl Into<String>) -> Self {
+        Self::build("session/budget-exceeded", message)
+    }
+
+    /// `io/read`: reading a file failed; the OS error kind is preserved.
+    pub fn io_read(path: &Path, error: io::Error) -> Self {
+        let kind = format!("{:?}", error.kind());
+        Self::build("io/read", format!("could not read `{}`: {error}", path.display()))
+            .with_params(json!({ "path": path.display().to_string(), "kind": kind }))
+            .source(error)
+    }
+
+    /// `io/write`: publishing a file failed.
+    pub fn io_write(path: &Path, reason: impl Into<String>) -> Self {
+        Self::build("io/write", format!("could not publish `{}`: {}", path.display(), reason.into()))
+            .with_params(json!({ "path": path.display().to_string() }))
+    }
+
+    /// `io/exists`: the target is present and overwrite was not granted.
+    pub fn io_exists(path: &Path) -> Self {
+        Self::build("io/exists", format!("`{}` already exists; pass overwrite to replace it", path.display()))
+            .with_params(json!({ "path": path.display().to_string() }))
+    }
+
+    /// Stable, comparable code.
+    pub fn code(&self) -> &str {
+        &self.code
+    }
+
+    /// Human-readable message; never carries binary payloads.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Typed per-code parameters, or `Value::Null` when the code carries none.
+    pub fn params(&self) -> &Value {
+        &self.params
     }
 }
 
@@ -77,14 +192,18 @@ impl fmt::Display for ServiceError {
     }
 }
 
-impl std::error::Error for ServiceError {}
+impl std::error::Error for ServiceError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.as_ref().map(|error| error.as_ref() as &(dyn std::error::Error + 'static))
+    }
+}
 
 pub(crate) fn invalid(message: impl Into<String>) -> ServiceError {
-    ServiceError::new("session/argument-invalid", message)
+    ServiceError::argument(message)
 }
 
 pub(crate) fn document_not_found(handle: u64) -> ServiceError {
-    ServiceError::new("document/not-found", format!("no live document has handle {handle}"))
+    ServiceError::document_not_found(handle)
 }
 
 /// What this build can actually do.
@@ -255,10 +374,7 @@ pub fn replace(handle: u64, request: &Value) -> Result<Value, ServiceError> {
         if let Some(expected) = request.expected_revision
             && expected != entry.graph.revision
         {
-            return Err(ServiceError::new(
-                "document/revision-conflict",
-                format!("expected revision {expected} but the document is at revision {}", entry.graph.revision),
-            ));
+            return Err(ServiceError::revision_conflict(expected, entry.graph.revision));
         }
         let before = entry.state().clone();
         let outcome = replace::apply(&mut entry.graph, &request);
@@ -342,7 +458,7 @@ pub fn redo(handle: u64, steps: Option<u32>) -> Result<Value, ServiceError> {
 pub fn merge(handle: u64, path: &Path, mode: Option<&str>) -> Result<Value, ServiceError> {
     let mode = mode.unwrap_or("append");
     if mode != "append" {
-        return Err(ServiceError::new("object/unsupported", format!("merge mode `{mode}` is not supported")));
+        return Err(ServiceError::merge_mode_unsupported(mode));
     }
     store::with(handle, |_| ()).ok_or_else(|| document_not_found(handle))?;
     let donor = files::load(path)?;

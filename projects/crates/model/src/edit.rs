@@ -92,10 +92,7 @@ pub(crate) fn apply(graph: &mut DocumentGraph, request: &Value) -> Result<Vec<Va
     if let Some(expected) = expected
         && expected != graph.revision
     {
-        return Err(ServiceError::new(
-            "document/revision-conflict",
-            format!("expected revision {expected} but the document is at revision {}", graph.revision),
-        ));
+        return Err(ServiceError::revision_conflict(expected, graph.revision));
     }
 
     // Operations that depend on graph state (a block id, an index, a table
@@ -482,7 +479,7 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
                 .ok_or_else(|| crate::invalid("`case` must be `upper`, `lower` or `title`"))?;
             Ok(Operation::SetTextCase { id: parse_block_id(operation)?, case })
         }
-        other => Err(ServiceError::new("object/unsupported", format!("edit operation `{other}` is not supported"))),
+        other => Err(ServiceError::operation_unsupported(other)),
     }
 }
 
@@ -1212,7 +1209,7 @@ fn fill_in_text(text: &str, values: &[(String, String)]) -> (String, usize) {
 
 fn remove_block(graph: &mut DocumentGraph, id: NodeId) -> Result<usize, ServiceError> {
     if !graph.blocks.iter().any(|node| node.id == id) {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     }
     let before = graph.blocks.len();
     sweep(graph, id);
@@ -1342,7 +1339,7 @@ fn insert_into_container(graph: &mut DocumentGraph, target: NodeId, new_id: Node
 /// source is followed at the top level, because it has no container list.
 fn duplicate_block(graph: &mut DocumentGraph, id: NodeId) -> Result<NodeId, ServiceError> {
     if !graph.blocks.iter().any(|node| node.id == id) {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     }
     let new_id = duplicate_subtree(graph, id, &mut HashMap::new());
     if !insert_after_source(graph, id, new_id) {
@@ -1609,7 +1606,7 @@ impl TextCase {
 fn set_text_case(graph: &mut DocumentGraph, id: NodeId, case: TextCase) -> Result<usize, ServiceError> {
     let Some(node) = graph.blocks.iter_mut().find(|node| node.id == id)
     else {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     };
     let changed = match &mut node.block {
         Block::Paragraph { content } => case_inlines(content, case),
@@ -1711,9 +1708,9 @@ fn transpose_table(graph: &mut DocumentGraph, table: usize) -> Result<(usize, us
     let transposed = (0..width)
         .map(|column| TableRow { cells: (0..total).map(|row| grid[row][column].clone()).collect() })
         .collect::<Vec<_>>();
-    *head = Vec::new();
+    head.clear();
     *body = transposed;
-    *foot = Vec::new();
+    foot.clear();
     Ok((width, total, head_rows, foot_rows))
 }
 
@@ -2239,7 +2236,7 @@ fn update_paragraph(graph: &mut DocumentGraph, target: Target, text: String) -> 
     let id = match target {
         Target::Id(id) => {
             if !graph.blocks.iter().any(|node| node.id == id) {
-                return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+                return Err(ServiceError::block_not_found(id.0));
             }
             id
         }
@@ -2266,7 +2263,7 @@ fn update_paragraph(graph: &mut DocumentGraph, target: Target, text: String) -> 
 /// are, so a document that addressed a heading can be re-levelled in place.
 fn set_heading_level(graph: &mut DocumentGraph, id: NodeId, level: u8) -> Result<String, ServiceError> {
     if !graph.blocks.iter().any(|node| node.id == id) {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     }
     let label =
         graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
@@ -2287,7 +2284,7 @@ fn set_heading_level(graph: &mut DocumentGraph, id: NodeId, level: u8) -> Result
 /// collapses to the one new paragraph.
 fn set_quote_text(graph: &mut DocumentGraph, id: NodeId, text: String) -> Result<String, ServiceError> {
     if !graph.blocks.iter().any(|node| node.id == id) {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     }
     let label =
         graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
@@ -2317,7 +2314,7 @@ fn set_quote_text(graph: &mut DocumentGraph, id: NodeId, text: String) -> Result
 /// missing or empty `language` clears the tag, so the fence renders bare.
 fn set_code_language(graph: &mut DocumentGraph, id: NodeId, language: Option<String>) -> Result<String, ServiceError> {
     if !graph.blocks.iter().any(|node| node.id == id) {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     }
     let label =
         graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
@@ -2336,7 +2333,7 @@ fn set_code_language(graph: &mut DocumentGraph, id: NodeId, language: Option<Str
 /// Only the content changes; the id, position and language tag stay as they are.
 fn set_code_text(graph: &mut DocumentGraph, id: NodeId, text: String) -> Result<String, ServiceError> {
     if !graph.blocks.iter().any(|node| node.id == id) {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     }
     let label =
         graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
@@ -2355,7 +2352,7 @@ fn set_code_text(graph: &mut DocumentGraph, id: NodeId, text: String) -> Result<
 /// unordered, because the IR requires explicit numbers on ordered items.
 fn set_list_ordered(graph: &mut DocumentGraph, id: NodeId, ordered: bool) -> Result<String, ServiceError> {
     if !graph.blocks.iter().any(|node| node.id == id) {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     }
     let label =
         graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
@@ -2378,7 +2375,7 @@ fn set_list_ordered(graph: &mut DocumentGraph, id: NodeId, ordered: bool) -> Res
 /// items only live inside lists.
 fn resolve_list(graph: &DocumentGraph, id: NodeId, operation: &str) -> Result<String, ServiceError> {
     let Some(node) = graph.blocks.iter().find(|node| node.id == id) else {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     };
     if !matches!(node.block, Block::List { .. }) {
         return Err(crate::invalid(format!("`{operation}` needs a list; the addressed block is not one")));
@@ -2852,7 +2849,7 @@ fn remove_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Resul
 /// refused because their items carry no numbers to move.
 fn set_list_start(graph: &mut DocumentGraph, id: NodeId, start: u32) -> Result<String, ServiceError> {
     if !graph.blocks.iter().any(|node| node.id == id) {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     }
     let label =
         graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
@@ -2881,7 +2878,7 @@ fn set_list_start(graph: &mut DocumentGraph, id: NodeId, start: u32) -> Result<S
 /// plain inline run so callers can rely on the exact text they passed.
 fn set_heading_text(graph: &mut DocumentGraph, id: NodeId, text: &str) -> Result<String, ServiceError> {
     if !graph.blocks.iter().any(|node| node.id == id) {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     }
     let label =
         graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
@@ -2900,7 +2897,7 @@ fn move_block(graph: &mut DocumentGraph, id: NodeId, index: usize) -> Result<(),
     let order = document_ir::flat_order(graph);
     let Some(position) = order.iter().position(|node| *node == id)
     else {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     };
     if index > order.len() {
         return Err(crate::invalid(format!("`index` {index} is outside the document's {} block positions", order.len())));
@@ -3031,7 +3028,7 @@ fn convert_block(
     ordered: Option<bool>,
 ) -> Result<&'static str, ServiceError> {
     let Some(node) = graph.blocks.iter().find(|node| node.id == id) else {
-        return Err(ServiceError::new("object/not-found", format!("no block has id {}", id.0)));
+        return Err(ServiceError::block_not_found(id.0));
     };
     let from = match &node.block {
         Block::Paragraph { .. } => ConvertKind::Paragraph,
@@ -3208,7 +3205,7 @@ fn place_after(graph: &mut DocumentGraph, anchor: NodeId, node: NodeId) {
 fn swap_blocks(graph: &mut DocumentGraph, id: NodeId, target: NodeId) -> Result<(), ServiceError> {
     for node in [id, target] {
         if !graph.blocks.iter().any(|block| block.id == node) {
-            return Err(ServiceError::new("object/not-found", format!("no block has id {}", node.0)));
+            return Err(ServiceError::block_not_found(node.0));
         }
     }
     if id == target {

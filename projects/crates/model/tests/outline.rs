@@ -63,7 +63,7 @@ fn outline_of_an_empty_document_is_empty_and_unknown_handles_fail() {
     assert_eq!(report["revision"], json!(0));
 
     let error = outline(999_999).expect_err("unknown handle must fail");
-    assert_eq!(error.code, "document/not-found");
+    assert_eq!(error.code(), "document/not-found");
 
     close(handle).expect("close");
 }

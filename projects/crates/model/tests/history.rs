@@ -82,7 +82,7 @@ fn undo_and_redo_walk_multiple_steps() {
     undo(handle, None).expect("undo one step");
     append(handle, "four");
     let error = redo(handle, None).expect_err("redo must be gone after a new edit");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     assert_eq!(summary_text(&summary(handle).expect("summary")), "one\ntwo\nfour");
 
     close(handle).expect("close");
@@ -97,11 +97,11 @@ fn out_of_range_steps_leave_the_document_untouched() {
 
     for steps in [Some(2), Some(0)] {
         let error = undo(handle, steps).expect_err("an unavailable undo must fail");
-        assert_eq!(error.code, "session/argument-invalid");
+        assert_eq!(error.code(), "session/argument-invalid");
         assert_eq!(summary(handle).expect("summary"), before);
     }
     let error = redo(handle, None).expect_err("nothing has been undone");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     assert_eq!(summary(handle).expect("summary"), before);
 
     let undone = undo(handle, None).expect("default step");
@@ -109,7 +109,7 @@ fn out_of_range_steps_leave_the_document_untouched() {
     assert_eq!(summary(handle).expect("summary")["paragraphs"].as_array().unwrap().len(), 0);
 
     let error = undo(handle, Some(2)).expect_err("only one snapshot was left");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     assert_eq!(summary(handle).expect("summary")["paragraphs"].as_array().unwrap().len(), 0);
 
     close(handle).expect("close");
@@ -124,9 +124,9 @@ fn opened_documents_start_with_an_empty_history() {
     let opened = open(&path).expect("open markdown");
     let handle = handle_of(&opened);
     let error = undo(handle, None).expect_err("an opened document has no undo history");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     let error = redo(handle, None).expect_err("an opened document has no redo history");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
 
     close(handle).expect("close");
 }
@@ -140,7 +140,7 @@ fn history_keeps_only_the_fifty_most_recent_mutations() {
     }
 
     let error = undo(handle, Some(51)).expect_err("the oldest snapshot was dropped");
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
 
     let undone = undo(handle, Some(50)).expect("the whole retained history");
     assert_eq!(undone["undone"], json!(50));

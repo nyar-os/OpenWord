@@ -26,14 +26,14 @@ fn capability_matrix_reflects_wired_routes() {
 #[test]
 fn unknown_handle_is_a_stable_failure() {
     for error in [summary(999_999), inspect(999_999, None), edit(999_999, &json!({ "operations": [] }))] {
-        assert_eq!(error.unwrap_err().code, "document/not-found");
+        assert_eq!(error.unwrap_err().code(), "document/not-found");
     }
     let error = find(999_999, "text", None).unwrap_err();
-    assert_eq!(error.code, "document/not-found");
+    assert_eq!(error.code(), "document/not-found");
     let error = find(999_999, "", None).unwrap_err();
-    assert_eq!(error.code, "session/argument-invalid");
+    assert_eq!(error.code(), "session/argument-invalid");
     let error = save(999_999, Path::new("report.oword"), true).unwrap_err();
-    assert_eq!(error.code, "document/not-found");
+    assert_eq!(error.code(), "document/not-found");
     export(999_999, "docx", Path::new("report.docx"), true).unwrap_err();
 }
 

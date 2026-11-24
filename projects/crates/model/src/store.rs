@@ -54,9 +54,9 @@ impl document_session::Revisioned for Entry {
 impl From<document_session::SessionError> for ServiceError {
     fn from(error: document_session::SessionError) -> Self {
         match error.kind {
-            document_session::SessionErrorKind::NotFound => ServiceError::new("document/not-found", error.message),
+            document_session::SessionErrorKind::NotFound => ServiceError::forward("document/not-found", error.message),
             document_session::SessionErrorKind::UndoUnavailable | document_session::SessionErrorKind::RedoUnavailable => {
-                ServiceError::new("session/argument-invalid", error.message)
+                ServiceError::forward("session/argument-invalid", error.message)
             }
         }
     }

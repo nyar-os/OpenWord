@@ -10,8 +10,8 @@
 export { OpenWord } from './open-word.js';
 export { GuiError, closeGui, defaultGuiContentDir, isGuiOpen, openGui, pumpEvents, runGui } from './gui.js';
 export type { GuiCloseResult, GuiOpenResult, GuiStatus, OpenGuiOptions } from './gui.js';
-export { NotImplementedError, OpenWordError, errorCodes, isOpenWordError } from './errors.js';
-export type { OpenWordErrorCode, OpenWordErrorDetails, OpenWordErrorOptions } from './errors.js';
+export { NotImplementedError, OpenWordError, errorCodes, isOpenWordError, renderErrorCopy, setErrorLocale } from './errors.js';
+export type { OpenWordErrorCode, OpenWordErrorDetails, OpenWordErrorOptions, OpenWordErrorParams } from './errors.js';
 export { defaultIntentFor, documentFormats, formatFromPath, formatInfo, formatRegistry } from './formats.js';
 export type {
     DocumentFormat,

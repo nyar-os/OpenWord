@@ -9,6 +9,8 @@
  */
 
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { OpenWord, OpenWordError, documentFormats, formatFromPath, formatInfo } from '../src/index.js';
@@ -260,4 +262,33 @@ test('format registry classifies the document format family', () => {
     assert.equal(formatFromPath('report.oword'), undefined);
     assert.equal(formatFromPath('notes.key'), undefined);
     assert.equal(formatFromPath('no-extension'), undefined);
+});
+
+test('real binding failures carry the typed params of their code', { skip: withoutAddon }, async () => {
+    const word = new OpenWord();
+    try {
+        await assert.rejects(
+            word.open({ path: join(tmpdir(), 'open-word-missing-file.docx') }),
+            (error: unknown) => {
+                assert.ok(error instanceof OpenWordError);
+                assert.equal(error.code, 'io/read');
+                assert.equal(error.params.kind, 'NotFound');
+                assert.equal(typeof error.params.path, 'string');
+                return true;
+            },
+        );
+
+        await word.create({ title: 'Params' });
+        await assert.rejects(
+            word.edit([{ type: 'block.duplicate', id: 'node-999999' }]),
+            (error: unknown) => {
+                assert.ok(error instanceof OpenWordError);
+                assert.equal(error.code, 'object/not-found');
+                assert.equal(error.params.kind, 'block');
+                return true;
+            },
+        );
+    } finally {
+        await word.dispose();
+    }
 });

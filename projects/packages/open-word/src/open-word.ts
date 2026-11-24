@@ -6,7 +6,7 @@
  * methods, so a failure is always awaited and always carries a stable code.
  */
 
-import { OpenWordError } from './errors.js';
+import { OpenWordError, setErrorLocale } from './errors.js';
 import * as service from './service.js';
 import type {
     Document,
@@ -45,6 +45,7 @@ export class OpenWord {
 
     constructor(options: OpenWordOptions = {}) {
         this.locale = options.locale ?? 'en';
+        setErrorLocale(this.locale);
     }
 
     /** Whether {@link dispose} has run. */

@@ -25,7 +25,7 @@
     "scripts": {
         "build": "tsc -p tsconfig.json",
         "typecheck": "tsc -p tsconfig.json --noEmit",
-        "test": "tsc -p tsconfig.test.json && node --test dist-test/tests/smoke.test.js"
+        "test": "tsc -p tsconfig.test.json && node --test dist-test/tests/smoke.test.js dist-test/tests/error-contract.test.js"
     },
     "keywords": [
         "docx",

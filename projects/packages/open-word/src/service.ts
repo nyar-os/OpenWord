@@ -6,7 +6,14 @@
  * here knows about a command line.
  */
 
-import { NotImplementedError, OpenWordError, errorCodes, type OpenWordErrorCode } from './errors.js';
+import {
+    NotImplementedError,
+    OpenWordError,
+    errorCodes,
+    renderErrorCopy,
+    type OpenWordErrorCode,
+    type OpenWordErrorParams,
+} from './errors.js';
 import { nativeBinding } from './native.js';
 import type {
     Document,
@@ -53,13 +60,33 @@ function translate(error: unknown): OpenWordError {
     if (error instanceof OpenWordError) {
         return error;
     }
-    const message = error instanceof Error ? error.message : String(error);
-    const separator = message.indexOf(': ');
-    const code = separator > 0 ? message.slice(0, separator) : '';
-    if (knownCodes.has(code)) {
-        return new OpenWordError(code as OpenWordErrorCode, message.slice(separator + 2), { details: { feature: code } });
+    const native = error instanceof Error ? (error as Error & { code?: unknown; detail?: unknown }) : undefined;
+    const message = native ? native.message : String(error);
+    const rawCode = native?.code;
+    const code = typeof rawCode === 'string' ? rawCode : undefined;
+    if (code !== undefined) {
+        const params = readParams(native?.detail);
+        return new OpenWordError(code as OpenWordErrorCode, renderErrorCopy(code, params, message), { params, cause: error });
     }
-    return new OpenWordError('format/invalid', message, { cause: error });
+    // Compatibility entry for addons older than the structured contract, which
+    // concatenated `code: message` into the Error text. Current bindings always
+    // carry `code` and `detail.params`, so this split never runs against them.
+    const separator = message.indexOf(': ');
+    const legacy = separator > 0 ? message.slice(0, separator) : '';
+    if (knownCodes.has(legacy)) {
+        return new OpenWordError(legacy as OpenWordErrorCode, message.slice(separator + 2), { cause: error });
+    }
+    return new OpenWordError('binding/failure', message, { cause: error });
+}
+
+function readParams(detail: unknown): OpenWordErrorParams {
+    if (typeof detail === 'object' && detail !== null) {
+        const params = (detail as { params?: unknown }).params;
+        if (typeof params === 'object' && params !== null && !Array.isArray(params)) {
+            return params as OpenWordErrorParams;
+        }
+    }
+    return {};
 }
 
 /** A released-on-close document handle plus its committed summary and import losses. */

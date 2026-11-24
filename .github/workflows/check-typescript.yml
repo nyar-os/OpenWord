@@ -22,3 +22,33 @@ jobs:
         run: pnpm typecheck
       - name: Test
         run: pnpm test
+
+  examples:
+    name: examples (staged binding)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install
+        run: pnpm install --no-frozen-lockfile
+        working-directory: projects
+      - name: Build the native binding
+        run: cargo build -p open-word-napi
+        working-directory: projects
+      - name: Compile the package sources
+        run: pnpm --filter @wae/open-word run build:test
+        working-directory: projects
+      - name: Run the offer workflow example against the real engine
+        run: node projects/packages/open-word/dist-test/examples/offer-workflow.js
+        env:
+          OPEN_WORD_NATIVE: ${{ github.workspace }}/projects/target/debug/libopen_word_napi.so
+      - name: Run the SDK tests against the real engine
+        run: pnpm --filter @wae/open-word test
+        working-directory: projects
+        env:
+          OPEN_WORD_NATIVE: ${{ github.workspace }}/projects/target/debug/libopen_word_napi.so

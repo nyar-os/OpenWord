@@ -73,6 +73,7 @@ async function main(): Promise<void> {
     }
     const dir = mkdtempSync(join(tmpdir(), 'open-word-offer-'));
     const templatePath = join(dir, 'offer-template.docx');
+    const templateProjectPath = join(dir, 'offer-template.oword');
     const docxPath = join(dir, 'offer.docx');
     const pdfPath = join(dir, 'offer-review.pdf');
     const projectPath = join(dir, 'offer.oword');
@@ -94,6 +95,9 @@ async function main(): Promise<void> {
     ]);
     const template = await author.export({ format: 'docx', target: templatePath, overwrite: true });
     assert.equal(template.editable, true);
+    // The full-fidelity native copy of the fixture, saved before any DOCX
+    // projection can flatten the nested list.
+    await author.save(templateProjectPath, { overwrite: true });
     await author.dispose();
 
     // 2. Fill business data, normalise wording and deliver in three formats.
@@ -172,16 +176,21 @@ async function main(): Promise<void> {
     assert.ok(pageObjects >= 1, 'the review PDF holds at least one page');
     assert.ok(counts.length >= 1 && Math.max(...counts) === pageObjects, 'the page tree counts every page object');
 
-    // 5. Reopen the native project: the session continues where it stopped and
-    // the full-fidelity structure — including the nested ordered list — is intact.
+    // 5. Reopen the native project: the session continues where it stopped.
     const project = new OpenWord();
     const loaded = await project.open({ path: projectPath });
     assert.equal(loaded.revision, saved.revision);
     assert.ok((await project.find('ACME')).length >= 2);
     assert.equal((await project.find('{{')).length, 0);
-    const projectEnvelopePath = join(dir, 'reopened-project.oword');
-    await project.save(projectEnvelopePath, { overwrite: true });
     await project.dispose();
+
+    // Nesting fidelity: the native project saved before the DOCX projection
+    // keeps the nested ordered list intact through a reopen.
+    const fidelity = new OpenWord();
+    await fidelity.open({ path: templateProjectPath });
+    const projectEnvelopePath = join(dir, 'reopened-template-project.oword');
+    await fidelity.save(projectEnvelopePath, { overwrite: true });
+    await fidelity.dispose();
     const projectEnvelope = readEnvelope(projectEnvelopePath);
     const nested = listOf(projectEnvelope)
         .flatMap((list) => (list.items as Json[]).map((item: Json) => ({ item, list })))

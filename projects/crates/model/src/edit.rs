@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use document_ir::{Block, DocumentGraph, Inline, ListItem, NodeId, TableCell, TableRow, TransformError};
+use document_ir::{Block, BlockKind, DocumentGraph, Inline, ListItem, NodeId, TableCell, TableRow, TransformError};
 use serde_json::{Value, json};
 
 use crate::{ServiceError, replace};
@@ -65,7 +65,7 @@ enum Operation {
     UpdateParagraph { target: Target, text: String },
     MoveBlock { id: NodeId, index: usize },
     DuplicateBlock { id: NodeId },
-    ConvertBlock { id: NodeId, to: ConvertKind, level: Option<u8>, language: Option<String>, ordered: Option<bool> },
+    ConvertBlock { id: NodeId, to: BlockKind, level: Option<u8>, language: Option<String>, ordered: Option<bool> },
     SwapBlocks { id: NodeId, target: NodeId },
     TemplateFill { values: Vec<(String, String)> },
 }
@@ -201,11 +201,15 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
         "list.setItemChecked" => {
             let checked = optional_bool(operation, "checked")?
                 .ok_or_else(|| crate::invalid("`list.setItemChecked` needs a boolean `checked`"))?;
-            Ok(Operation::SetItemChecked { block: parse_block_id(operation)?, item: required_index(operation, "item")?, checked })
+            Ok(Operation::SetItemChecked {
+                block: parse_block_id(operation)?,
+                item: required_index(operation, "item")?,
+                checked,
+            })
         }
         "list.setItemTask" => {
-            let task = optional_bool(operation, "task")?
-                .ok_or_else(|| crate::invalid("`list.setItemTask` needs a boolean `task`"))?;
+            let task =
+                optional_bool(operation, "task")?.ok_or_else(|| crate::invalid("`list.setItemTask` needs a boolean `task`"))?;
             let checked = optional_bool(operation, "checked")?;
             if !task && checked.is_some() {
                 return Err(crate::invalid("`checked` is only valid when `task` is true"));
@@ -238,14 +242,12 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             ascending: operation.get("ascending").and_then(Value::as_bool).unwrap_or(true),
         }),
         "list.reverseItems" => Ok(Operation::ReverseListItems { block: parse_block_id(operation)? }),
-        "list.indentItem" => Ok(Operation::IndentListItem {
-            block: parse_block_id(operation)?,
-            item: required_index(operation, "item")?,
-        }),
-        "list.unindentItem" => Ok(Operation::UnindentListItem {
-            block: parse_block_id(operation)?,
-            item: required_index(operation, "item")?,
-        }),
+        "list.indentItem" => {
+            Ok(Operation::IndentListItem { block: parse_block_id(operation)?, item: required_index(operation, "item")? })
+        }
+        "list.unindentItem" => {
+            Ok(Operation::UnindentListItem { block: parse_block_id(operation)?, item: required_index(operation, "item")? })
+        }
         "list.insertItem" => {
             let text = required_text(operation, "text")?;
             if text.trim().is_empty() {
@@ -253,14 +255,12 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
             }
             Ok(Operation::InsertListItem { block: parse_block_id(operation)?, item: required_index(operation, "item")?, text })
         }
-        "list.duplicateItem" => Ok(Operation::DuplicateListItem {
-            block: parse_block_id(operation)?,
-            item: required_index(operation, "item")?,
-        }),
-        "list.removeItem" => Ok(Operation::RemoveListItem {
-            block: parse_block_id(operation)?,
-            item: required_index(operation, "item")?,
-        }),
+        "list.duplicateItem" => {
+            Ok(Operation::DuplicateListItem { block: parse_block_id(operation)?, item: required_index(operation, "item")? })
+        }
+        "list.removeItem" => {
+            Ok(Operation::RemoveListItem { block: parse_block_id(operation)?, item: required_index(operation, "item")? })
+        }
         "quote.append" => {
             let text = required_text(operation, "text")?;
             if text.is_empty() {
@@ -331,9 +331,7 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
         "table.setCaption" => {
             let caption = optional_text(operation, "caption")?.map(|caption| caption.trim().to_owned());
             if caption.as_deref() == Some("") {
-                return Err(crate::invalid(
-                    "`table.setCaption` needs a non-empty `caption`, or omit it to clear the caption",
-                ));
+                return Err(crate::invalid("`table.setCaption` needs a non-empty `caption`, or omit it to clear the caption"));
             }
             Ok(Operation::SetCaption { table: required_index(operation, "table")?, caption })
         }
@@ -418,10 +416,10 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
         "block.move" => Ok(Operation::MoveBlock { id: parse_block_id(operation)?, index: required_index(operation, "index")? }),
         "block.duplicate" => Ok(Operation::DuplicateBlock { id: parse_block_id(operation)? }),
         "block.convert" => {
-            let to = ConvertKind::parse(&required_text(operation, "to")?)
+            let to = parse_convert_kind(&required_text(operation, "to")?)
                 .ok_or_else(|| crate::invalid("`to` must be `paragraph`, `heading`, `quote`, `code` or `list`"))?;
             let level = match to {
-                ConvertKind::Heading => {
+                BlockKind::Heading => {
                     let level = operation
                         .get("level")
                         .and_then(Value::as_u64)
@@ -442,7 +440,7 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
                 }
             };
             let language = match to {
-                ConvertKind::Code => optional_text(operation, "language")?.filter(|value| !value.trim().is_empty()),
+                BlockKind::Code => optional_text(operation, "language")?.filter(|value| !value.trim().is_empty()),
                 other => {
                     if operation.get("language").filter(|value| !value.is_null()).is_some() {
                         return Err(crate::invalid(format!(
@@ -454,7 +452,7 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
                 }
             };
             let ordered = match to {
-                ConvertKind::List => Some(optional_bool(operation, "ordered")?.unwrap_or(false)),
+                BlockKind::List => Some(optional_bool(operation, "ordered")?.unwrap_or(false)),
                 other => {
                     if operation.get("ordered").filter(|value| !value.is_null()).is_some() {
                         return Err(crate::invalid(format!(
@@ -485,7 +483,8 @@ fn parse(operation: &Value) -> Result<Operation, ServiceError> {
 
 fn parse_block_id(operation: &Value) -> Result<NodeId, ServiceError> {
     let raw = required_text(operation, "id")?;
-    document_ir::parse_block_address(&raw).ok_or_else(|| crate::invalid("`id` must be a block id such as `node-3` or `section-1`"))
+    document_ir::parse_block_address(&raw)
+        .ok_or_else(|| crate::invalid("`id` must be a block id such as `node-3` or `section-1`"))
 }
 
 fn paragraph_target(operation: &Value) -> Result<Target, ServiceError> {
@@ -550,7 +549,8 @@ fn optional_text(operation: &Value, key: &str) -> Result<Option<String>, Service
 ///
 /// An empty array is meaningful: it clears the previous tags.
 fn optional_tags(operation: &Value) -> Result<Option<Vec<String>>, ServiceError> {
-    let Some(value) = operation.get("tags").filter(|value| !value.is_null()) else {
+    let Some(value) = operation.get("tags").filter(|value| !value.is_null())
+    else {
         return Ok(None);
     };
     let entries = value.as_array().ok_or_else(|| crate::invalid("`tags` must be an array of strings"))?;
@@ -613,9 +613,7 @@ fn required_text_rows(operation: &Value) -> Result<Vec<Vec<String>>, ServiceErro
         }
         let mut texts = Vec::with_capacity(cells.len());
         for cell in cells {
-            texts.push(
-                cell.as_str().ok_or_else(|| crate::invalid("`rows` must contain only strings"))?.to_owned(),
-            );
+            texts.push(cell.as_str().ok_or_else(|| crate::invalid("`rows` must contain only strings"))?.to_owned());
         }
         match width {
             None => width = Some(texts.len()),
@@ -1032,7 +1030,7 @@ fn apply_one(graph: &mut DocumentGraph, operation: Operation) -> Result<Value, S
             if let Some(level) = level {
                 report["level"] = json!(level);
             }
-            if to == ConvertKind::Code {
+            if to == BlockKind::Code {
                 report["language"] = json!(language);
             }
             if let Some(ordered) = ordered {
@@ -1377,12 +1375,7 @@ fn set_table_band_rows(
         else {
             unreachable!("the id was filtered to a table block");
         };
-        if header {
-            std::mem::replace(head, built)
-        }
-        else {
-            std::mem::replace(foot, built)
-        }
+        if header { std::mem::replace(head, built) } else { std::mem::replace(foot, built) }
     };
     sweep_rows(graph, old);
     Ok(count)
@@ -1490,9 +1483,7 @@ fn set_text_case(graph: &mut DocumentGraph, id: NodeId, case: TextCase) -> Resul
         Block::List { items, .. } => items.iter_mut().map(|item| case_inlines(&mut item.content, case)).sum(),
         Block::Code { content, .. } => case_text(content, case),
         _ => {
-            return Err(crate::invalid(
-                "`block.setTextCase` needs a paragraph, heading, list or code block",
-            ));
+            return Err(crate::invalid("`block.setTextCase` needs a paragraph, heading, list or code block"));
         }
     };
     Ok(changed)
@@ -1569,7 +1560,10 @@ fn sort_table_rows(graph: &mut DocumentGraph, table: usize, column: usize, ascen
 fn transpose_table(graph: &mut DocumentGraph, table: usize) -> Result<(usize, usize, usize, usize), ServiceError> {
     let table_id = table_id_at(graph, table)?;
     let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
-    let Block::Table { head, body, foot, .. } = &mut node.block else { unreachable!("the id was filtered to a table block") };
+    let Block::Table { head, body, foot, .. } = &mut node.block
+    else {
+        unreachable!("the id was filtered to a table block")
+    };
     let grid = head.iter().chain(body.iter()).chain(foot.iter()).map(|row| row.cells.clone()).collect::<Vec<_>>();
     let width = grid.first().map(Vec::len).unwrap_or_default();
     let rectangular = !grid.is_empty()
@@ -1592,13 +1586,7 @@ fn transpose_table(graph: &mut DocumentGraph, table: usize) -> Result<(usize, us
 
 /// Reads the visible text of one table cell for sorting.
 fn cell_text(graph: &DocumentGraph, cell: &TableCell) -> String {
-    cell.children
-        .iter()
-        .map(|child| block_text(graph, *child))
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .to_owned()
+    cell.children.iter().map(|child| block_text(graph, *child)).collect::<Vec<_>>().join(" ").trim().to_owned()
 }
 
 /// Reads the plain text of one block, recursing through quotations.
@@ -1611,9 +1599,7 @@ fn block_text(graph: &DocumentGraph, id: NodeId) -> String {
         Block::Paragraph { content } => inline_text(content),
         Block::Section { title, .. } => inline_text(title),
         Block::Code { content, .. } => content.clone(),
-        Block::Quote { children } => {
-            children.iter().map(|child| block_text(graph, *child)).collect::<Vec<_>>().join(" ")
-        }
+        Block::Quote { children } => children.iter().map(|child| block_text(graph, *child)).collect::<Vec<_>>().join(" "),
         _ => String::new(),
     }
 }
@@ -1792,7 +1778,9 @@ fn insert_row(graph: &mut DocumentGraph, table: usize, row: usize, cells: Option
     graph.revision = revision;
     outcome.map_err(|error| match error {
         TransformError::EmptyTable(_) => crate::invalid("`table.insertRow` needs a table with at least one column"),
-        TransformError::RowOutOfRange { row, rows, .. } => crate::invalid(format!("`row` {row} is outside the table's {rows} rows")),
+        TransformError::RowOutOfRange { row, rows, .. } => {
+            crate::invalid(format!("`row` {row} is outside the table's {rows} rows"))
+        }
         TransformError::CellCountMismatch { expected, actual, .. } => {
             crate::invalid(format!("`cells` needs {expected} entries for the table grid but has {actual}"))
         }
@@ -1884,7 +1872,9 @@ fn duplicate_table_row(graph: &mut DocumentGraph, table: usize, row: usize) -> R
     let outcome = graph.duplicate_table_row(table_id, row);
     graph.revision = revision;
     outcome.map_err(|error| match error {
-        TransformError::RowOutOfRange { row, rows, .. } => crate::invalid(format!("`row` {row} is outside the table's {rows} rows")),
+        TransformError::RowOutOfRange { row, rows, .. } => {
+            crate::invalid(format!("`row` {row} is outside the table's {rows} rows"))
+        }
         error => crate::invalid(error.to_string()),
     })
 }
@@ -1946,16 +1936,10 @@ fn duplicate_table_column(graph: &mut DocumentGraph, table: usize, column: usize
     };
     let mut copies = Vec::with_capacity(sources.len());
     for cell in sources {
-        let children = cell
-            .children
-            .iter()
-            .copied()
-            .filter(|child| graph.blocks.iter().any(|node| node.id == *child))
-            .collect::<Vec<_>>();
+        let children =
+            cell.children.iter().copied().filter(|child| graph.blocks.iter().any(|node| node.id == *child)).collect::<Vec<_>>();
         let revision = graph.revision;
-        let outcome = graph
-            .clone_subtree(&children)
-            .expect("every requested child was filtered to an existing block");
+        let outcome = graph.clone_subtree(&children).expect("every requested child was filtered to an existing block");
         graph.revision = revision;
         copies.push(TableCell { children: outcome.roots, colspan: 1, rowspan: cell.rowspan });
     }
@@ -2069,8 +2053,12 @@ fn update_paragraph(graph: &mut DocumentGraph, target: Target, text: String) -> 
                 .ok_or_else(|| crate::invalid(format!("`index` {index} is outside the document's {} blocks", order.len())))?
         }
     };
-    let label =
-        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let label = graph
+        .blocks
+        .iter()
+        .find(|node| node.id == id)
+        .map(|node| document_ir::block_address(&node.block, id))
+        .unwrap_or_default();
     let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
     match &mut node.block {
         Block::Paragraph { content } => *content = vec![Inline::Text { text }],
@@ -2087,8 +2075,12 @@ fn set_heading_level(graph: &mut DocumentGraph, id: NodeId, level: u8) -> Result
     if !graph.blocks.iter().any(|node| node.id == id) {
         return Err(ServiceError::block_not_found(id.0));
     }
-    let label =
-        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let label = graph
+        .blocks
+        .iter()
+        .find(|node| node.id == id)
+        .map(|node| document_ir::block_address(&node.block, id))
+        .unwrap_or_default();
     let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
     match &mut node.block {
         Block::Section { level: current, .. } => {
@@ -2108,8 +2100,12 @@ fn set_quote_text(graph: &mut DocumentGraph, id: NodeId, text: String) -> Result
     if !graph.blocks.iter().any(|node| node.id == id) {
         return Err(ServiceError::block_not_found(id.0));
     }
-    let label =
-        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let label = graph
+        .blocks
+        .iter()
+        .find(|node| node.id == id)
+        .map(|node| document_ir::block_address(&node.block, id))
+        .unwrap_or_default();
     let old_children = {
         let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
         match &mut node.block {
@@ -2138,8 +2134,12 @@ fn set_code_language(graph: &mut DocumentGraph, id: NodeId, language: Option<Str
     if !graph.blocks.iter().any(|node| node.id == id) {
         return Err(ServiceError::block_not_found(id.0));
     }
-    let label =
-        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let label = graph
+        .blocks
+        .iter()
+        .find(|node| node.id == id)
+        .map(|node| document_ir::block_address(&node.block, id))
+        .unwrap_or_default();
     let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
     match &mut node.block {
         Block::Code { language: current, .. } => {
@@ -2157,8 +2157,12 @@ fn set_code_text(graph: &mut DocumentGraph, id: NodeId, text: String) -> Result<
     if !graph.blocks.iter().any(|node| node.id == id) {
         return Err(ServiceError::block_not_found(id.0));
     }
-    let label =
-        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let label = graph
+        .blocks
+        .iter()
+        .find(|node| node.id == id)
+        .map(|node| document_ir::block_address(&node.block, id))
+        .unwrap_or_default();
     let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
     match &mut node.block {
         Block::Code { content, .. } => *content = text,
@@ -2176,8 +2180,12 @@ fn set_list_ordered(graph: &mut DocumentGraph, id: NodeId, ordered: bool) -> Res
     if !graph.blocks.iter().any(|node| node.id == id) {
         return Err(ServiceError::block_not_found(id.0));
     }
-    let label =
-        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let label = graph
+        .blocks
+        .iter()
+        .find(|node| node.id == id)
+        .map(|node| document_ir::block_address(&node.block, id))
+        .unwrap_or_default();
     let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
     match &mut node.block {
         Block::List { ordered: current, items, .. } => {
@@ -2196,13 +2204,44 @@ fn set_list_ordered(graph: &mut DocumentGraph, id: NodeId, ordered: bool) -> Res
 /// Unknown ids report `object/not-found`; other block types are refused because
 /// items only live inside lists.
 fn resolve_list(graph: &DocumentGraph, id: NodeId, operation: &str) -> Result<String, ServiceError> {
-    let Some(node) = graph.blocks.iter().find(|node| node.id == id) else {
+    let Some(node) = graph.blocks.iter().find(|node| node.id == id)
+    else {
         return Err(ServiceError::block_not_found(id.0));
     };
     if !matches!(node.block, Block::List { .. }) {
         return Err(crate::invalid(format!("`{operation}` needs a list; the addressed block is not one")));
     }
     Ok(document_ir::block_address(&node.block, id))
+}
+
+/// Maps a shared list-transform failure onto the service error codes.
+///
+/// `resolve_list` already rejects missing blocks and non-lists, so the graph
+/// errors left here are the index, numbering and cycle refusals.
+fn list_error(operation: &str, error: TransformError) -> ServiceError {
+    match error {
+        TransformError::NotFound(id) => ServiceError::block_not_found(id.0),
+        TransformError::NotAList(_) => crate::invalid(format!("`{operation}` needs a list; the addressed block is not one")),
+        TransformError::NoPreviousSibling(_) => {
+            crate::invalid(format!("`{operation}` needs `item` to be at least 1; the first item has no previous sibling"))
+        }
+        TransformError::ItemOutOfRange { item, items, .. } => {
+            crate::invalid(format!("`{operation}` item {item} is outside the list's {items} items"))
+        }
+        TransformError::IndexOutOfRange { index, positions, .. } => {
+            crate::invalid(format!("`{operation}` index {index} is outside the list's {positions} positions"))
+        }
+        TransformError::NothingToLift { item, .. } => {
+            crate::invalid(format!("`{operation}` item {item} has no nested list of the same marker style to lift"))
+        }
+        TransformError::MoveIntoDescendant { .. } => {
+            crate::invalid("`list.moveItemTo` cannot move an item into a list nested inside it")
+        }
+        TransformError::NumberingOverflow => {
+            crate::invalid(format!("editing this list would push its numbering beyond the {} maximum", u32::MAX))
+        }
+        other => crate::invalid(other.to_string()),
+    }
 }
 
 /// Rewrites an ordered list's numbers as one consecutive run from `base`.
@@ -2212,7 +2251,8 @@ fn resolve_list(graph: &DocumentGraph, id: NodeId, operation: &str) -> Result<St
 fn renumber_items(items: &mut [ListItem], base: u32) -> Result<(), ServiceError> {
     for (index, item) in items.iter_mut().enumerate() {
         let offset = u32::try_from(index).unwrap_or(u32::MAX);
-        let Some(number) = base.checked_add(offset) else {
+        let Some(number) = base.checked_add(offset)
+        else {
             return Err(crate::invalid(format!("editing this list would push its numbering beyond the {} maximum", u32::MAX)));
         };
         item.number = Some(number);
@@ -2232,9 +2272,8 @@ fn set_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, text: Strin
         unreachable!("the list was just checked");
     };
     let count = items.len();
-    let target = items
-        .get_mut(item)
-        .ok_or_else(|| crate::invalid(format!("item {item} is outside the list's {count} items")))?;
+    let target =
+        items.get_mut(item).ok_or_else(|| crate::invalid(format!("item {item} is outside the list's {count} items")))?;
     target.content = vec![Inline::Text { text }];
     Ok(label)
 }
@@ -2362,7 +2401,8 @@ fn reverse_list_items(graph: &mut DocumentGraph, id: NodeId) -> Result<(String, 
 /// The item keeps its text, task marker, check state and nested blocks. An
 /// ordered source and destination are each renumbered from their own first
 /// number. A destination nested inside the moved item is refused because the
-/// move would create a cycle.
+/// move would create a cycle. The graph mechanics live in the shared
+/// `DocumentGraph::move_list_item_to`.
 fn move_list_item_to(
     graph: &mut DocumentGraph,
     id: NodeId,
@@ -2372,76 +2412,10 @@ fn move_list_item_to(
 ) -> Result<(String, String), ServiceError> {
     let label = resolve_list(graph, id, "`list.moveItemTo`")?;
     let target_label = resolve_list(graph, target, "`list.moveItemTo`")?;
-    if id == target {
-        move_list_item(graph, id, item, index)?;
-        return Ok((label, target_label));
-    }
-    let (source_ordered, source_base, moved) = {
-        let node = graph.blocks.iter().find(|node| node.id == id).expect("the list was just resolved");
-        let Block::List { ordered, items, .. } = &node.block
-        else {
-            unreachable!("the list was just checked");
-        };
-        let count = items.len();
-        if item >= count {
-            return Err(crate::invalid(format!("item {item} is outside the list's {count} items")));
-        }
-        let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
-        (*ordered, base, items[item].clone())
-    };
-    let mut pending = moved.children.clone();
-    let mut seen = Vec::new();
-    while let Some(child) = pending.pop() {
-        if child == target {
-            return Err(crate::invalid("`list.moveItemTo` cannot move an item into a list nested inside it"));
-        }
-        if seen.contains(&child) {
-            continue;
-        }
-        seen.push(child);
-        if let Some(node) = graph.blocks.iter().find(|node| node.id == child) {
-            pending.extend(document_ir::child_ids(&node.block));
-        }
-    }
-    let target_base = {
-        let node = graph.blocks.iter().find(|node| node.id == target).expect("the target list was just resolved");
-        let Block::List { ordered, items, .. } = &node.block
-        else {
-            unreachable!("the target list was just checked");
-        };
-        if index > items.len() {
-            return Err(crate::invalid(format!(
-                "`index` {index} is outside the target list's {} insertion points",
-                items.len()
-            )));
-        }
-        if *ordered {
-            items.first().and_then(|entry| entry.number).unwrap_or(1)
-        }
-        else {
-            0
-        }
-    };
-    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
-    let Block::List { ordered: _, items, .. } = &mut node.block
-    else {
-        unreachable!("the list was just checked");
-    };
-    items.remove(item);
-    if source_ordered {
-        renumber_items(items, source_base)?;
-    }
-    let node = graph.blocks.iter_mut().find(|node| node.id == target).expect("the target list was just resolved");
-    let Block::List { ordered: target_ordered, items, .. } = &mut node.block
-    else {
-        unreachable!("the target list was just checked");
-    };
-    let mut moved = moved;
-    moved.number = None;
-    items.insert(index, moved);
-    if *target_ordered {
-        renumber_items(items, target_base)?;
-    }
+    let revision = graph.revision;
+    let outcome = graph.move_list_item_to(id, item, target, index);
+    graph.revision = revision;
+    outcome.map_err(|error| list_error("`list.moveItemTo`", error))?;
     Ok((label, target_label))
 }
 
@@ -2452,64 +2426,14 @@ fn move_list_item_to(
 /// children. When the previous item already ends with a nested list of the same
 /// marker style the item joins that list, keeping one nested run per level. An
 /// ordered list is renumbered on both levels so each run stays consecutive. The
-/// first item has no previous sibling and is refused.
+/// first item has no previous sibling and is refused. The graph mechanics live
+/// in the shared `DocumentGraph::indent_list_item`.
 fn indent_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Result<String, ServiceError> {
     let label = resolve_list(graph, id, "`list.indentItem`")?;
-    if item == 0 {
-        return Err(crate::invalid("`list.indentItem` needs `item` to be at least 1; the first item has no previous sibling"));
-    }
-    let (ordered, removed, host) = {
-        let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
-        let Block::List { ordered, items, .. } = &mut node.block
-        else {
-            unreachable!("the list was just resolved");
-        };
-        let count = items.len();
-        if item >= count {
-            return Err(crate::invalid(format!("item {item} is outside the list's {count} items")));
-        }
-        let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
-        let removed = items.remove(item);
-        if *ordered {
-            renumber_items(items, base)?;
-        }
-        // The item before the moved one becomes its parent after removal.
-        let host = items.get(item - 1).and_then(|entry| entry.children.last().copied());
-        (*ordered, removed, host)
-    };
-    let nested = host.filter(|child| {
-        graph
-            .blocks
-            .iter()
-            .find(|node| node.id == *child)
-            .is_some_and(|node| matches!(&node.block, Block::List { ordered: nested, .. } if *nested == ordered))
-    });
-    if let Some(child) = nested {
-        let node = graph.blocks.iter_mut().find(|node| node.id == child).expect("the nested list was just resolved");
-        let Block::List { items, .. } = &mut node.block
-        else {
-            unreachable!("the nested list was just resolved");
-        };
-        let base = items.first().and_then(|entry| entry.number).unwrap_or(1);
-        items.push(removed);
-        if ordered {
-            renumber_items(items, base)?;
-        }
-        return Ok(label);
-    }
-    // A fresh nested run restarts at 1, so ordered items keep consecutive numbers.
-    let mut nested = removed;
-    if ordered {
-        nested.number = Some(1);
-    }
-    let child = graph.push_block(Block::List { ordered, items: vec![nested] });
-    let parent = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list is still there");
-    let Block::List { items, .. } = &mut parent.block
-    else {
-        unreachable!("the list is still a list");
-    };
-    let host = items.get_mut(item - 1).expect("the previous item still exists");
-    host.children.push(child);
+    let revision = graph.revision;
+    let outcome = graph.indent_list_item(id, item);
+    graph.revision = revision;
+    outcome.map_err(|error| list_error("`list.indentItem`", error))?;
     Ok(label)
 }
 
@@ -2518,46 +2442,14 @@ fn indent_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Resul
 /// The item's last child must be a nested list with the same marker style; its
 /// items move directly after the parent item and the now-empty nested list block
 /// is swept, so repeated indent and unindent round-trip. An ordered list is
-/// renumbered after the splice. Items without such a child are refused.
+/// renumbered after the splice. Items without such a child are refused. The
+/// graph mechanics live in the shared `DocumentGraph::unindent_list_item`.
 fn unindent_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Result<String, ServiceError> {
     let label = resolve_list(graph, id, "`list.unindentItem`")?;
-    let (child, lifted) = {
-        let node = graph.blocks.iter().find(|node| node.id == id).expect("the list was just resolved");
-        let Block::List { ordered, items, .. } = &node.block
-        else {
-            unreachable!("the list was just resolved");
-        };
-        let count = items.len();
-        if item >= count {
-            return Err(crate::invalid(format!("item {item} is outside the list's {count} items")));
-        }
-        let Some(child) = items[item].children.last().copied()
-        else {
-            return Err(crate::invalid(format!("item {item} has no nested list to lift")));
-        };
-        let nested = graph.blocks.iter().find(|node| node.id == child).and_then(|node| match &node.block {
-            Block::List { ordered: nested_ordered, items, .. } if *nested_ordered == *ordered => Some(items.clone()),
-            _ => None,
-        });
-        let Some(lifted) = nested
-        else {
-            return Err(crate::invalid(format!("item {item} has no nested list of the same marker style to lift")));
-        };
-        (child, lifted)
-    };
-    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list is still there");
-    let Block::List { ordered, items, .. } = &mut node.block
-    else {
-        unreachable!("the list is still a list");
-    };
-    let host = items.get_mut(item).expect("the item still exists");
-    host.children.retain(|candidate| *candidate != child);
-    items.splice(item + 1..item + 1, lifted);
-    if *ordered {
-        let base = items.first().and_then(|entry| entry.number).unwrap_or(1);
-        renumber_items(items, base)?;
-    }
-    sweep(graph, child);
+    let revision = graph.revision;
+    let outcome = graph.unindent_list_item(id, item);
+    graph.revision = revision;
+    outcome.map_err(|error| list_error("`list.unindentItem`", error))?;
     Ok(label)
 }
 
@@ -2604,12 +2496,8 @@ fn duplicate_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Re
         }
         (*ordered, items[item].clone())
     };
-    let existing = copied
-        .children
-        .iter()
-        .copied()
-        .filter(|child| graph.blocks.iter().any(|node| node.id == *child))
-        .collect::<Vec<_>>();
+    let existing =
+        copied.children.iter().copied().filter(|child| graph.blocks.iter().any(|node| node.id == *child)).collect::<Vec<_>>();
     let revision = graph.revision;
     let outcome = graph.clone_subtree(&existing).expect("every requested child was filtered to an existing block");
     graph.revision = revision;
@@ -2626,13 +2514,7 @@ fn duplicate_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Re
     let base = if ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
     items.insert(
         item + 1,
-        ListItem {
-            content: copied.content,
-            children,
-            number: None,
-            is_task: copied.is_task,
-            is_checked: copied.is_checked,
-        },
+        ListItem { content: copied.content, children, number: None, is_task: copied.is_task, is_checked: copied.is_checked },
     );
     if *list_ordered {
         renumber_items(items, base)?;
@@ -2680,16 +2562,18 @@ fn set_list_start(graph: &mut DocumentGraph, id: NodeId, start: u32) -> Result<S
     if !graph.blocks.iter().any(|node| node.id == id) {
         return Err(ServiceError::block_not_found(id.0));
     }
-    let label =
-        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let label = graph
+        .blocks
+        .iter()
+        .find(|node| node.id == id)
+        .map(|node| document_ir::block_address(&node.block, id))
+        .unwrap_or_default();
     let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
     match &mut node.block {
         Block::List { ordered: true, items, .. } => {
             for (index, item) in items.iter_mut().enumerate() {
                 item.number = Some(
-                    start
-                        .checked_add(index as u32)
-                        .ok_or_else(|| crate::invalid("the renumbered range would overflow u32"))?,
+                    start.checked_add(index as u32).ok_or_else(|| crate::invalid("the renumbered range would overflow u32"))?,
                 );
             }
             Ok(label)
@@ -2709,8 +2593,12 @@ fn set_heading_text(graph: &mut DocumentGraph, id: NodeId, text: &str) -> Result
     if !graph.blocks.iter().any(|node| node.id == id) {
         return Err(ServiceError::block_not_found(id.0));
     }
-    let label =
-        graph.blocks.iter().find(|node| node.id == id).map(|node| document_ir::block_address(&node.block, id)).unwrap_or_default();
+    let label = graph
+        .blocks
+        .iter()
+        .find(|node| node.id == id)
+        .map(|node| document_ir::block_address(&node.block, id))
+        .unwrap_or_default();
     let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
     match &mut node.block {
         Block::Section { title, .. } => {
@@ -2812,38 +2700,15 @@ fn reorder_root_before(graph: &mut DocumentGraph, target: NodeId, id: NodeId) {
     graph.blocks.insert(target_position, node);
 }
 
-/// Block kind `block.convert` can switch a block to.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ConvertKind {
-    Paragraph,
-    Heading,
-    Quote,
-    Code,
-    List,
-}
-
-impl ConvertKind {
-    /// Parses one kind name; `None` means the name is not supported.
-    fn parse(raw: &str) -> Option<Self> {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "paragraph" => Some(Self::Paragraph),
-            "heading" => Some(Self::Heading),
-            "quote" => Some(Self::Quote),
-            "code" => Some(Self::Code),
-            "list" => Some(Self::List),
-            _ => None,
-        }
-    }
-
-    /// Stable name echoed by the operation report.
-    fn label(self) -> &'static str {
-        match self {
-            Self::Paragraph => "paragraph",
-            Self::Heading => "heading",
-            Self::Quote => "quote",
-            Self::Code => "code",
-            Self::List => "list",
-        }
+/// Parses one `block.convert` kind name; `None` means the name is not supported.
+fn parse_convert_kind(raw: &str) -> Option<BlockKind> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "paragraph" => Some(BlockKind::Paragraph),
+        "heading" => Some(BlockKind::Heading),
+        "quote" => Some(BlockKind::Quote),
+        "code" => Some(BlockKind::Code),
+        "list" => Some(BlockKind::List),
+        _ => None,
     }
 }
 
@@ -2859,218 +2724,36 @@ impl ConvertKind {
 /// a paragraph that keeps the source text. A list becomes a paragraph per item:
 /// the first item takes the block's place and the remaining items, together
 /// with each item's nested children, follow directly after it. Converting a
-/// block to its own kind, a table, and any other pair is refused.
+/// block to its own kind, a table, and any other pair is refused. The graph
+/// mechanics live in the shared `DocumentGraph::convert_block`.
 fn convert_block(
     graph: &mut DocumentGraph,
     id: NodeId,
-    to: ConvertKind,
+    to: BlockKind,
     level: Option<u8>,
     language: Option<&str>,
     ordered: Option<bool>,
 ) -> Result<&'static str, ServiceError> {
-    let Some(node) = graph.blocks.iter().find(|node| node.id == id) else {
-        return Err(ServiceError::block_not_found(id.0));
-    };
-    let from = match &node.block {
-        Block::Paragraph { .. } => ConvertKind::Paragraph,
-        Block::Section { .. } => ConvertKind::Heading,
-        Block::Quote { .. } => ConvertKind::Quote,
-        Block::Code { .. } => ConvertKind::Code,
-        Block::List { .. } => ConvertKind::List,
-        _ => {
-            return Err(crate::invalid("`block.convert` can only convert paragraphs, headings, quotes, code blocks and lists"));
+    let revision = graph.revision;
+    let outcome = graph.convert_block(id, to, level, language, ordered);
+    graph.revision = revision;
+    let from = outcome.map_err(|error| match error {
+        TransformError::NotFound(id) => ServiceError::block_not_found(id.0),
+        TransformError::NotConvertible(_) => {
+            crate::invalid("`block.convert` can only convert paragraphs, headings, quotes, code blocks and lists")
         }
-    };
-    if from == to {
-        return Err(crate::invalid(format!("the addressed block is already a `{}`", to.label())));
-    }
-    match (from, to) {
-        (ConvertKind::Paragraph, ConvertKind::Heading) => {
-            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
-            let Block::Paragraph { content } = &mut node.block else { unreachable!("the source was a paragraph") };
-            let title = std::mem::take(content);
-            node.block = Block::Section { level: level.expect("a heading conversion carries a level"), title, children: Vec::new() };
+        TransformError::AlreadyKind { kind, .. } => {
+            crate::invalid(format!("the addressed block is already a `{}`", kind.label()))
         }
-        (ConvertKind::Heading, ConvertKind::Paragraph) => {
-            let (title, children) = {
-                let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
-                let Block::Section { title, children, .. } = &mut node.block else { unreachable!("the source was a heading") };
-                (std::mem::take(title), std::mem::take(children))
-            };
-            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
-            node.block = Block::Paragraph { content: title };
-            let mut anchor = id;
-            for child in children {
-                if graph.blocks.iter().any(|node| node.id == child) {
-                    place_after(graph, anchor, child);
-                    anchor = child;
-                }
-            }
+        TransformError::MissingHeadingLevel(_) => {
+            crate::invalid("`block.convert` needs a numeric `level` from 1 to 6 for a heading")
         }
-        (ConvertKind::Paragraph, ConvertKind::Quote) => {
-            let content = {
-                let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
-                let Block::Paragraph { content } = &mut node.block else { unreachable!("the source was a paragraph") };
-                std::mem::take(content)
-            };
-            let child = graph.push_block(Block::Paragraph { content });
-            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
-            node.block = Block::Quote { children: vec![child] };
+        TransformError::InvalidConversion { from, to } => {
+            crate::invalid(format!("`block.convert` cannot turn a `{}` into a `{}`", from.label(), to.label()))
         }
-        (ConvertKind::Quote, ConvertKind::Paragraph) => {
-            let old_children = {
-                let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
-                let Block::Quote { children } = &mut node.block else { unreachable!("the source was a quote") };
-                std::mem::take(children)
-            };
-            let content = match old_children.as_slice() {
-                [child] => graph
-                    .blocks
-                    .iter()
-                    .find(|node| node.id == *child)
-                    .and_then(|node| match &node.block { Block::Paragraph { content } => Some(content.clone()), _ => None }),
-                _ => None,
-            };
-            let content = content.unwrap_or_else(|| {
-                vec![Inline::Text {
-                    text: old_children.iter().map(|child| block_text(graph, *child)).collect::<Vec<_>>().join(" "),
-                }]
-            });
-            for old in old_children {
-                sweep(graph, old);
-            }
-            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
-            node.block = Block::Paragraph { content };
-        }
-        (ConvertKind::Paragraph, ConvertKind::Code) => {
-            let content = {
-                let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
-                let Block::Paragraph { content } = &mut node.block else { unreachable!("the source was a paragraph") };
-                std::mem::take(content)
-            };
-            let text = document_ir::plain_text(&content);
-            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
-            node.block = Block::Code { language: language.map(str::to_owned), content: text };
-        }
-        (ConvertKind::Code, ConvertKind::Paragraph) => {
-            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
-            let Block::Code { content, .. } = &mut node.block else { unreachable!("the source was code") };
-            let text = std::mem::take(content);
-            node.block = Block::Paragraph { content: vec![Inline::Text { text }] };
-        }
-        (ConvertKind::Paragraph, ConvertKind::List) => {
-            let content = {
-                let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
-                let Block::Paragraph { content } = &mut node.block else { unreachable!("the source was a paragraph") };
-                std::mem::take(content)
-            };
-            let ordered = ordered.unwrap_or(false);
-            let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
-            node.block = Block::List {
-                ordered,
-                items: vec![ListItem {
-                    content,
-                    children: Vec::new(),
-                    number: ordered.then_some(1),
-                    is_task: false,
-                    is_checked: None,
-                }],
-            };
-        }
-        (ConvertKind::List, ConvertKind::Paragraph) => {
-            let items = {
-                let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block was just resolved");
-                let Block::List { items, .. } = &mut node.block else { unreachable!("the source was a list") };
-                std::mem::take(items)
-            };
-            let mut items = items.into_iter();
-            let mut anchor = id;
-            match items.next() {
-                Some(first) => {
-                    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
-                    node.block = Block::Paragraph { content: first.content };
-                    for child in first.children {
-                        if graph.blocks.iter().any(|node| node.id == child) {
-                            place_after(graph, anchor, child);
-                            anchor = child;
-                        }
-                    }
-                }
-                None => {
-                    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the block is still there");
-                    node.block = Block::Paragraph { content: Vec::new() };
-                }
-            }
-            for item in items {
-                let paragraph = graph.push_block(Block::Paragraph { content: item.content });
-                place_after(graph, anchor, paragraph);
-                anchor = paragraph;
-                for child in item.children {
-                    if graph.blocks.iter().any(|node| node.id == child) {
-                        place_after(graph, anchor, child);
-                        anchor = child;
-                    }
-                }
-            }
-        }
-        (source, target) => {
-            return Err(crate::invalid(format!(
-                "`block.convert` cannot turn a `{}` into a `{}`",
-                source.label(),
-                target.label()
-            )));
-        }
-    }
+        other => crate::invalid(other.to_string()),
+    })?;
     Ok(from.label())
-}
-
-/// Inserts `new_id` directly after `target` inside the container that owns
-/// `target`, returning `false` when `target` is a top-level block.
-fn insert_after_source(graph: &mut DocumentGraph, target: NodeId, new_id: NodeId) -> bool {
-    for node in &mut graph.blocks {
-        match &mut node.block {
-            Block::Section { children, .. } | Block::Quote { children } => {
-                if let Some(position) = children.iter().position(|child| *child == target) {
-                    children.insert(position + 1, new_id);
-                    return true;
-                }
-            }
-            Block::List { items, .. } => {
-                for item in items {
-                    if let Some(position) = item.children.iter().position(|child| *child == target) {
-                        item.children.insert(position + 1, new_id);
-                        return true;
-                    }
-                }
-            }
-            Block::Table { head, body, foot, .. } => {
-                for row in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()) {
-                    for cell in &mut row.cells {
-                        if let Some(position) = cell.children.iter().position(|child| *child == target) {
-                            cell.children.insert(position + 1, new_id);
-                            return true;
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    false
-}
-
-/// Places an existing node directly after `anchor`: inside the container that
-/// holds `anchor` when it has one, or right behind it in the top-level order.
-fn place_after(graph: &mut DocumentGraph, anchor: NodeId, node: NodeId) {
-    if insert_after_source(graph, anchor, node) {
-        return;
-    }
-    let Some(position) = graph.blocks.iter().position(|block| block.id == node) else {
-        return;
-    };
-    let block = graph.blocks.remove(position);
-    let anchor_position = graph.blocks.iter().position(|block| block.id == anchor).unwrap_or(graph.blocks.len());
-    graph.blocks.insert(anchor_position + 1, block);
 }
 
 /// Exchanges the top-level positions of two blocks.

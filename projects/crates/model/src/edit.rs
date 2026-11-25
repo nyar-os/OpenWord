@@ -2237,27 +2237,14 @@ fn list_error(operation: &str, error: TransformError) -> ServiceError {
         TransformError::MoveIntoDescendant { .. } => {
             crate::invalid("`list.moveItemTo` cannot move an item into a list nested inside it")
         }
+        TransformError::CannotEmptyList { .. } => {
+            crate::invalid("`list.removeItem` would leave the list empty; remove the whole list block instead")
+        }
         TransformError::NumberingOverflow => {
             crate::invalid(format!("editing this list would push its numbering beyond the {} maximum", u32::MAX))
         }
         other => crate::invalid(other.to_string()),
     }
-}
-
-/// Rewrites an ordered list's numbers as one consecutive run from `base`.
-///
-/// The item count decides whether the range fits in `u32`; unordered lists keep
-/// their items untouched because their items carry no numbers.
-fn renumber_items(items: &mut [ListItem], base: u32) -> Result<(), ServiceError> {
-    for (index, item) in items.iter_mut().enumerate() {
-        let offset = u32::try_from(index).unwrap_or(u32::MAX);
-        let Some(number) = base.checked_add(offset)
-        else {
-            return Err(crate::invalid(format!("editing this list would push its numbering beyond the {} maximum", u32::MAX)));
-        };
-        item.number = Some(number);
-    }
-    Ok(())
 }
 
 /// Replaces one list item's text with a single plain-text inline and returns
@@ -2329,27 +2316,14 @@ fn set_list_item_task(
 ///
 /// The item keeps its text, check state and nested children; only its position
 /// changes. An ordered list is renumbered from the number its first item carried,
-/// so the run stays consecutive.
+/// so the run stays consecutive. The graph mechanics live in the shared
+/// `DocumentGraph::move_list_item_to`, whose same-list branch reorders one run.
 fn move_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, index: usize) -> Result<String, ServiceError> {
     let label = resolve_list(graph, id, "`list.moveItem`")?;
-    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
-    let Block::List { ordered, items, .. } = &mut node.block
-    else {
-        unreachable!("the list was just checked");
-    };
-    let count = items.len();
-    if item >= count {
-        return Err(crate::invalid(format!("item {item} is outside the list's {count} items")));
-    }
-    if index >= count {
-        return Err(crate::invalid(format!("`index` {index} is outside the list's {count} item positions")));
-    }
-    let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
-    let moved = items.remove(item);
-    items.insert(index, moved);
-    if *ordered {
-        renumber_items(items, base)?;
-    }
+    let revision = graph.revision;
+    let outcome = graph.move_list_item_to(id, item, id, index);
+    graph.revision = revision;
+    outcome.map_err(|error| list_error("`list.moveItem`", error))?;
     Ok(label)
 }
 
@@ -2359,20 +2333,15 @@ fn move_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, index: usi
 /// Each item keeps its check state and nested children, which move with it.
 /// Numbers compare numerically and other keys case-insensitively, with blank
 /// items trailing in both directions; an ordered list is renumbered from the
-/// number its first item carried.
+/// number its first item carried. The graph mechanics live in the shared
+/// `DocumentGraph::sort_list_items`.
 fn sort_list_items(graph: &mut DocumentGraph, id: NodeId, ascending: bool) -> Result<(String, usize), ServiceError> {
     let label = resolve_list(graph, id, "`list.sortItems`")?;
-    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
-    let Block::List { ordered, items, .. } = &mut node.block
-    else {
-        unreachable!("the list was just checked");
-    };
-    let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
-    items.sort_by(|left, right| compare_row_keys(&inline_text(&left.content), &inline_text(&right.content), ascending));
-    if *ordered {
-        renumber_items(items, base)?;
-    }
-    Ok((label, items.len()))
+    let revision = graph.revision;
+    let outcome = graph.sort_list_items(id, ascending);
+    graph.revision = revision;
+    let items = outcome.map_err(|error| list_error("`list.sortItems`", error))?;
+    Ok((label, items))
 }
 
 /// Reverses the order of a list's items and returns the list's address and the
@@ -2380,20 +2349,15 @@ fn sort_list_items(graph: &mut DocumentGraph, id: NodeId, ascending: bool) -> Re
 ///
 /// Items keep their text, task marker, check state and nested children. An
 /// ordered list is renumbered from the number its first item carried before
-/// the reversal, so the visible run stays consecutive.
+/// the reversal, so the visible run stays consecutive. The graph mechanics
+/// live in the shared `DocumentGraph::reverse_list_items`.
 fn reverse_list_items(graph: &mut DocumentGraph, id: NodeId) -> Result<(String, usize), ServiceError> {
     let label = resolve_list(graph, id, "`list.reverseItems`")?;
-    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
-    let Block::List { ordered, items, .. } = &mut node.block
-    else {
-        unreachable!("the list was just checked");
-    };
-    let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
-    items.reverse();
-    if *ordered {
-        renumber_items(items, base)?;
-    }
-    Ok((label, items.len()))
+    let revision = graph.revision;
+    let outcome = graph.reverse_list_items(id);
+    graph.revision = revision;
+    let items = outcome.map_err(|error| list_error("`list.reverseItems`", error))?;
+    Ok((label, items))
 }
 
 /// Moves one item, with everything nested under it, into another list.
@@ -2456,25 +2420,14 @@ fn unindent_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Res
 /// Inserts a new plain item before position `item` and returns the list's address.
 ///
 /// An ordered list is renumbered so the run stays consecutive, keeping the
-/// number its first item carried before the insertion.
+/// number its first item carried before the insertion. The graph mechanics
+/// live in the shared `DocumentGraph::insert_list_item`.
 fn insert_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, text: String) -> Result<String, ServiceError> {
     let label = resolve_list(graph, id, "`list.insertItem`")?;
-    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
-    let Block::List { ordered, items, .. } = &mut node.block
-    else {
-        unreachable!("the list was just checked");
-    };
-    if item > items.len() {
-        return Err(crate::invalid(format!("item {item} is outside the list's {} insertion points", items.len())));
-    }
-    let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
-    items.insert(
-        item,
-        ListItem { content: vec![Inline::Text { text }], children: Vec::new(), number: None, is_task: false, is_checked: None },
-    );
-    if *ordered {
-        renumber_items(items, base)?;
-    }
+    let revision = graph.revision;
+    let outcome = graph.insert_list_item(id, item, vec![Inline::Text { text }]);
+    graph.revision = revision;
+    outcome.map_err(|error| list_error("`list.insertItem`", error))?;
     Ok(label)
 }
 
@@ -2482,43 +2435,14 @@ fn insert_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize, text: St
 ///
 /// The copy keeps the item's text, task marker and check state while its nested
 /// blocks are deep-copied, so editing one copy leaves the other untouched. An
-/// ordered list is renumbered so the run stays consecutive.
+/// ordered list is renumbered so the run stays consecutive. The graph
+/// mechanics live in the shared `DocumentGraph::duplicate_list_item`.
 fn duplicate_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Result<String, ServiceError> {
     let label = resolve_list(graph, id, "`list.duplicateItem`")?;
-    let (ordered, copied) = {
-        let node = graph.blocks.iter().find(|node| node.id == id).expect("the list was just resolved");
-        let Block::List { ordered, items, .. } = &node.block
-        else {
-            unreachable!("the list was just checked");
-        };
-        if item >= items.len() {
-            return Err(crate::invalid(format!("item {item} is outside the list's {} items", items.len())));
-        }
-        (*ordered, items[item].clone())
-    };
-    let existing =
-        copied.children.iter().copied().filter(|child| graph.blocks.iter().any(|node| node.id == *child)).collect::<Vec<_>>();
     let revision = graph.revision;
-    let outcome = graph.clone_subtree(&existing).expect("every requested child was filtered to an existing block");
+    let outcome = graph.duplicate_list_item(id, item);
     graph.revision = revision;
-    let children = outcome.roots;
-    let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
-    let Block::List { ordered: list_ordered, items, .. } = &mut node.block
-    else {
-        unreachable!("the list was just checked");
-    };
-    // `clone_subtree` attaches each copy after its source inside the source
-    // item; move the copies out so only the duplicated item holds them.
-    let moved = children.iter().copied().collect::<HashSet<_>>();
-    items[item].children.retain(|child| !moved.contains(child));
-    let base = if ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
-    items.insert(
-        item + 1,
-        ListItem { content: copied.content, children, number: None, is_task: copied.is_task, is_checked: copied.is_checked },
-    );
-    if *list_ordered {
-        renumber_items(items, base)?;
-    }
+    outcome.map_err(|error| list_error("`list.duplicateItem`", error))?;
     Ok(label)
 }
 
@@ -2526,31 +2450,14 @@ fn duplicate_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Re
 ///
 /// An ordered list is renumbered so the run stays consecutive. The last item
 /// cannot be removed because that would leave an empty list block; remove the
-/// whole block instead.
+/// whole block instead. The graph mechanics live in the shared
+/// `DocumentGraph::remove_list_item`.
 fn remove_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Result<String, ServiceError> {
     let label = resolve_list(graph, id, "`list.removeItem`")?;
-    let removed = {
-        let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
-        let Block::List { ordered, items, .. } = &mut node.block
-        else {
-            unreachable!("the list was just checked");
-        };
-        if item >= items.len() {
-            return Err(crate::invalid(format!("item {item} is outside the list's {} items", items.len())));
-        }
-        if items.len() == 1 {
-            return Err(crate::invalid("`list.removeItem` would leave the list empty; remove the whole list block instead"));
-        }
-        let base = if *ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
-        let removed = items.remove(item);
-        if *ordered {
-            renumber_items(items, base)?;
-        }
-        removed
-    };
-    for child in removed.children {
-        sweep(graph, child);
-    }
+    let revision = graph.revision;
+    let outcome = graph.remove_list_item(id, item);
+    graph.revision = revision;
+    outcome.map_err(|error| list_error("`list.removeItem`", error))?;
     Ok(label)
 }
 

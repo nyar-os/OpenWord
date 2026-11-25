@@ -38,14 +38,48 @@ jobs:
         run: pnpm install --no-frozen-lockfile
         working-directory: projects
       - name: Build the native binding
-        run: cargo build -p open-word-napi
+        run: cargo build -p open-word-napi --message-format=json-render-diagnostics > cargo-build.json
       - name: Stage the addon under the extension Node loads
-        run: cp target/debug/libopen_word_napi.so target/debug/open_word_napi.node
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            let artifact = null;
+            for (const line of fs.readFileSync("cargo-build.json", "utf8").split("\n")) {
+              let message;
+              try { message = JSON.parse(line); } catch { continue; }
+              if (message.reason === "compiler-artifact"
+                  && message.target?.crate_types?.includes("cdylib")
+                  && message.filenames?.length) {
+                artifact = message.filenames[0];
+              }
+            }
+            if (!artifact) {
+              console.error("no cdylib artifact found in cargo build messages");
+              process.exit(1);
+            }
+            fs.copyFileSync(artifact, "target/debug/open_word_napi.node");
+            console.log("staged cdylib:", artifact);
+          '
+      - name: Self-check the staged addon
+        env:
+          OPEN_WORD_NATIVE: ${{ github.workspace }}/target/debug/open_word_napi.node
+        run: |
+          node -e '
+            const binding = require(process.env.OPEN_WORD_NATIVE);
+            const version = binding.version();
+            if (typeof version !== "string" || version.length === 0) {
+              console.error("addon self-check failed: version() returned", JSON.stringify(version));
+              process.exit(1);
+            }
+            console.log("addon self-check ok: version", version);
+          '
       - name: Compile the package sources
         run: pnpm --filter @wae/open-word run build:test
         working-directory: projects
       - name: Run the offer workflow example against the real engine
-        run: node projects/packages/open-word/dist-test/examples/offer-workflow.js
+        run: |
+          node projects/packages/open-word/dist-test/examples/offer-workflow.js | tee offer-workflow.log
+          grep -F "offer workflow ok" offer-workflow.log
         env:
           OPEN_WORD_NATIVE: ${{ github.workspace }}/target/debug/open_word_napi.node
       - name: Run the SDK tests against the real engine

@@ -95,7 +95,7 @@ Before publishing, confirm that the platform packages were staged from a success
 
 - The Cargo workspace declares `version = "0.0.0"`, `edition = "2024"`, `rust-version = "1.90"` and `license = "MPL-2.0"` in the root `Cargo.toml`.
 - `wae` is pinned to the full 40-character revision `f92f818fde7174154d77a87b55a5e44b367034c9`.
-- The shared boost engine crates (`document-ir`, `document-session`, `boost-fs`, `document-formats`) are all pinned to the same full revision, `7664fcbca34da7882ee7eecd69d185ee694110fc`, so local builds and CI resolve the same semantic IR and adapters. Move these pins together; never use a branch or floating ref.
+- The shared boost engine crates (`document-ir`, `document-session`, `boost-fs`, `document-formats`) are all pinned to the same full revision, `1c2dbba30d576794bbbe51fdd2e9f5f4f8fe59d1`, so local builds and CI resolve the same semantic IR and adapters. Move these pins together; never use a branch or floating ref.
 - `document-formats` enables the `docx`, `pdf`, `html`, `markdown` and `rtf` features.
 - The native build is `open-word-napi` / `open_word_napi`; `wae.config.ts` maps five targets (win32-x64, darwin-x64, darwin-arm64, linux-x64, linux-arm64) to their package directories and `.node` file names.
 - Node tooling: pnpm `10.28.0`, `@wae/commander` `0.0.7`, VMZ `0.3.17`, TypeScript `^5.9.2`.

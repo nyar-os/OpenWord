@@ -78,7 +78,7 @@ pnpm --filter @wae/open-word-ui run serve   # local preview
 
 ## Release and publishing
 
-The publishable set is `@wae/open-word` plus the five `@wae/open-word-<platform>-<arch>` packages; `@wae/open-word-ui` and `@wae/open-word-skills` remain `private: true`. The app and platform packages are at version `0.0.0`, the studio is at `0.0.1`, and `@wae/open-word` references the platform packages through `workspace:*` optional dependencies.
+The publishable set is `@wae/open-word` plus the five `@wae/open-word-<platform>-<arch>` packages; `@wae/open-word-ui` and `@wae/open-word-skills` remain `private: true`. Every package in this workspace is at version `0.0.2`, and `@wae/open-word` references the platform packages through `workspace:*` optional dependencies.
 
 Current state of the repository:
 

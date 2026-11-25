@@ -1,6 +1,6 @@
 {
     "name": "@wae/open-word-linux-arm64",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "description": "Linux ARM64 native addon for @wae/open-word",
     "license": "MPL-2.0",
     "os": [

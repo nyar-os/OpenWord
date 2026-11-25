@@ -4,9 +4,9 @@
 //! rejected operation never leaves a half-applied revision. Each applied
 //! operation advances the revision exactly once.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use document_ir::{Block, DocumentGraph, Inline, ListItem, NodeId, TableCell, TableRow};
+use document_ir::{Block, DocumentGraph, Inline, ListItem, NodeId, TableCell, TableRow, TransformError};
 use serde_json::{Value, json};
 
 use crate::{ServiceError, replace};
@@ -1208,55 +1208,20 @@ fn fill_in_text(text: &str, values: &[(String, String)]) -> (String, usize) {
 }
 
 fn remove_block(graph: &mut DocumentGraph, id: NodeId) -> Result<usize, ServiceError> {
-    if !graph.blocks.iter().any(|node| node.id == id) {
-        return Err(ServiceError::block_not_found(id.0));
-    }
-    let before = graph.blocks.len();
-    sweep(graph, id);
-    Ok(before - graph.blocks.len())
+    let revision = graph.revision;
+    let removed = graph.delete_subtree(id).map_err(|_| ServiceError::block_not_found(id.0))?;
+    graph.revision = revision;
+    Ok(removed)
 }
 
 /// Physically removes one block and everything nested under it, then drops the
-/// references its containers still hold.
+/// references its containers still hold. Delegates to the upstream
+/// [`DocumentGraph::delete_subtree`], folding back its internal revision bump
+/// so `apply_one` remains the single place that advances the revision.
 fn sweep(graph: &mut DocumentGraph, id: NodeId) {
-    let mut doomed = HashSet::new();
-    collect_subtree(graph, id, &mut doomed);
-    for node in &mut graph.blocks {
-        prune_children(&mut node.block, &doomed);
-    }
-    graph.blocks.retain(|node| !doomed.contains(&node.id));
-}
-
-fn collect_subtree(graph: &DocumentGraph, id: NodeId, doomed: &mut HashSet<NodeId>) {
-    if !doomed.insert(id) {
-        return;
-    }
-    if let Some(node) = graph.blocks.iter().find(|node| node.id == id) {
-        for child in document_ir::child_ids(&node.block) {
-            collect_subtree(graph, child, doomed);
-        }
-    }
-}
-
-fn prune_children(block: &mut Block, doomed: &HashSet<NodeId>) {
-    match block {
-        Block::Section { children, .. } | Block::Quote { children } => {
-            children.retain(|child| !doomed.contains(child));
-        }
-        Block::List { items, .. } => {
-            for item in items {
-                item.children.retain(|child| !doomed.contains(child));
-            }
-        }
-        Block::Table { head, body, foot, .. } => {
-            for row in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()) {
-                for cell in &mut row.cells {
-                    cell.children.retain(|child| !doomed.contains(child));
-                }
-            }
-        }
-        _ => {}
-    }
+    let revision = graph.revision;
+    let _ = graph.delete_subtree(id);
+    graph.revision = revision;
 }
 
 /// Inserts a heading before the block at flat index `index` and returns its id.
@@ -1337,102 +1302,13 @@ fn insert_into_container(graph: &mut DocumentGraph, target: NodeId, new_id: Node
 /// a fresh node id, so the copy never aliases a source node, while inline
 /// content, structure and the authored source spans are kept. A top-level
 /// source is followed at the top level, because it has no container list.
+/// Delegates to the upstream [`DocumentGraph::clone_subtree`], folding back its
+/// internal revision bump so `apply_one` remains the single bump site.
 fn duplicate_block(graph: &mut DocumentGraph, id: NodeId) -> Result<NodeId, ServiceError> {
-    if !graph.blocks.iter().any(|node| node.id == id) {
-        return Err(ServiceError::block_not_found(id.0));
-    }
-    let new_id = duplicate_subtree(graph, id, &mut HashMap::new());
-    if !insert_after_source(graph, id, new_id) {
-        let position = graph.blocks.iter().position(|node| node.id == id).expect("the source block exists");
-        let copied = graph.blocks.iter().position(|node| node.id == new_id).expect("the copy was just pushed");
-        let node = graph.blocks.remove(copied);
-        graph.blocks.insert(position + 1, node);
-    }
-    Ok(new_id)
-}
-
-/// Copies one node and its children depth-first, recording `source -> copy` in
-/// `ids` so child references can be remapped once the whole subtree exists.
-fn duplicate_subtree(graph: &mut DocumentGraph, id: NodeId, ids: &mut HashMap<NodeId, NodeId>) -> NodeId {
-    let source =
-        graph.blocks.iter().find(|node| node.id == id).map(|node| node.block.clone()).expect("the subtree was resolved");
-    let span = graph.block_span(id);
-    let new_id = graph.push_block_at(source.clone(), span);
-    ids.insert(id, new_id);
-    for child in document_ir::child_ids(&source) {
-        if graph.blocks.iter().any(|node| node.id == child) {
-            duplicate_subtree(graph, child, ids);
-        }
-    }
-    let node = graph.blocks.iter_mut().find(|node| node.id == new_id).expect("the copy was just pushed");
-    remap_copy_children(&mut node.block, ids);
-    new_id
-}
-
-/// Rewrites child references of a copied block to their fresh ids. A reference
-/// without a copy is dropped rather than left pointing into the source subtree.
-fn remap_copy_children(block: &mut Block, ids: &HashMap<NodeId, NodeId>) {
-    match block {
-        Block::Section { children, .. } | Block::Quote { children } => retain_copies(children, ids),
-        Block::List { items, .. } => {
-            for item in items {
-                retain_copies(&mut item.children, ids);
-            }
-        }
-        Block::Table { head, body, foot, .. } => {
-            for row in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()) {
-                for cell in &mut row.cells {
-                    retain_copies(&mut cell.children, ids);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn retain_copies(children: &mut Vec<NodeId>, ids: &HashMap<NodeId, NodeId>) {
-    children.retain_mut(|child| match ids.get(child) {
-        Some(mapped) => {
-            *child = *mapped;
-            true
-        }
-        None => false,
-    });
-}
-
-/// Inserts `new_id` directly after `target` inside the container that owns
-/// `target`, returning `false` when `target` is a top-level block.
-fn insert_after_source(graph: &mut DocumentGraph, target: NodeId, new_id: NodeId) -> bool {
-    for node in &mut graph.blocks {
-        match &mut node.block {
-            Block::Section { children, .. } | Block::Quote { children } => {
-                if let Some(position) = children.iter().position(|child| *child == target) {
-                    children.insert(position + 1, new_id);
-                    return true;
-                }
-            }
-            Block::List { items, .. } => {
-                for item in items {
-                    if let Some(position) = item.children.iter().position(|child| *child == target) {
-                        item.children.insert(position + 1, new_id);
-                        return true;
-                    }
-                }
-            }
-            Block::Table { head, body, foot, .. } => {
-                for row in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()) {
-                    for cell in &mut row.cells {
-                        if let Some(position) = cell.children.iter().position(|child| *child == target) {
-                            cell.children.insert(position + 1, new_id);
-                            return true;
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    false
+    let revision = graph.revision;
+    let outcome = graph.clone_subtree(&[id]).map_err(|_| ServiceError::block_not_found(id.0))?;
+    graph.revision = revision;
+    Ok(outcome.roots[0])
 }
 
 /// Replaces the header row of one table.
@@ -1810,7 +1686,10 @@ fn set_cell(graph: &mut DocumentGraph, table: usize, row: usize, column: usize, 
 /// The cell is addressed by its top-left grid position. The anchor keeps its
 /// content; the cells the span covers in that row are dropped together with
 /// their child blocks, so the row width and the grid stay consistent. Setting
-/// a cell back to `1x1` unmerges it.
+/// a cell back to `1x1` unmerges it. Delegates to the upstream
+/// [`DocumentGraph::set_cell_span`], projecting its typed failures onto the
+/// product's stable `session/argument-invalid` envelope and folding back the
+/// internal revision bump.
 fn set_cell_span(
     graph: &mut DocumentGraph,
     table: usize,
@@ -1820,49 +1699,27 @@ fn set_cell_span(
     rowspan: u32,
 ) -> Result<(), ServiceError> {
     let table_id = table_id_at(graph, table)?;
-    let (total_rows, columns) = table_shape(graph, table_id);
-    if row >= total_rows {
-        return Err(crate::invalid(format!("`row` {row} is outside the table's {total_rows} rows")));
-    }
-    if column >= columns {
-        return Err(crate::invalid(format!("`column` {column} is outside the table's {columns} grid columns")));
-    }
-    let orphans = {
-        let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
-        let Block::Table { head, body, foot, .. } = &mut node.block
-        else {
-            unreachable!("the id was filtered to a table block");
-        };
-        let target = row_at(head, body, foot, row).expect("the row was validated");
-        let index = column_index(target, column);
-        if target.cells.get(index).is_none() {
-            return Err(crate::invalid(format!("`column` {column} is outside row {row}'s grid width")));
+    let (_, columns) = table_shape(graph, table_id);
+    let revision = graph.revision;
+    let outcome = graph.set_cell_span(table_id, row, column, colspan, rowspan);
+    graph.revision = revision;
+    outcome.map_err(|error| match error {
+        TransformError::RowOutOfRange { row, rows, .. } => {
+            crate::invalid(format!("`row` {row} is outside the table's {rows} rows"))
         }
-        // A merge consumes the cells it covers: measured on the grid as it was
-        // before the stamp, every cell after the anchor whose start falls
-        // inside `column + colspan` leaves the row.
-        let span_end = column + colspan as usize;
-        let mut covered: Vec<usize> = Vec::new();
-        let mut grid = 0usize;
-        for (i, cell) in target.cells.iter().enumerate() {
-            let start = grid;
-            grid = grid.saturating_add(cell.colspan.max(1) as usize);
-            if i > index && start < span_end {
-                covered.push(i);
+        // A table-level miss carries the table's grid width; a miss inside a
+        // narrower row carries that row's own width.
+        TransformError::ColumnOutOfRange { column, columns: available, .. } => {
+            if available == columns {
+                crate::invalid(format!("`column` {column} is outside the table's {columns} grid columns"))
+            }
+            else {
+                crate::invalid(format!("`column` {column} is outside row {row}'s grid width"))
             }
         }
-        target.cells[index].colspan = colspan;
-        target.cells[index].rowspan = rowspan;
-        let orphans: Vec<NodeId> = covered.iter().flat_map(|i| target.cells[*i].children.clone()).collect();
-        for i in covered.into_iter().rev() {
-            target.cells.remove(i);
-        }
-        orphans
-    };
-    for id in orphans {
-        remove_block(graph, id)?;
-    }
-    Ok(())
+        TransformError::NotFound(id) => ServiceError::block_not_found(id.0),
+        error => crate::invalid(error.to_string()),
+    })
 }
 
 fn row_at<'a>(
@@ -1916,47 +1773,31 @@ fn new_cell(graph: &mut DocumentGraph, text: String) -> TableCell {
     TableCell { children: vec![child], colspan: 1, rowspan: 1 }
 }
 
+/// Inserts one row at grid position `row`, every cell a plain paragraph.
+///
+/// Delegates to the upstream [`DocumentGraph::insert_table_row`]; the product's
+/// text cells become single-text-paragraph contents, and the internal revision
+/// bump is folded back for `apply_one`.
 fn insert_row(graph: &mut DocumentGraph, table: usize, row: usize, cells: Option<Vec<String>>) -> Result<(), ServiceError> {
     let table_id = table_id_at(graph, table)?;
-    let (total_rows, columns) = table_shape(graph, table_id);
-    if columns == 0 {
-        return Err(crate::invalid("`table.insertRow` needs a table with at least one column"));
-    }
-    if row > total_rows {
-        return Err(crate::invalid(format!("`row` {row} is outside the table's {total_rows} rows")));
-    }
-    let texts = match cells {
-        Some(values) if values.len() != columns => {
-            return Err(crate::invalid(format!("`cells` needs {columns} entries for the table grid but has {}", values.len())));
-        }
+    let contents = match cells {
         Some(values) => values,
-        None => vec![String::new(); columns],
-    };
-    let new_row = TableRow { cells: texts.into_iter().map(|text| new_cell(graph, text)).collect() };
-
-    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
-    let Block::Table { head, body, foot, .. } = &mut node.block
-    else {
-        unreachable!("the id was filtered to a table block");
-    };
-    let head_len = head.len();
-    let body_len = body.len();
-    if row < head_len {
-        head.insert(row, new_row);
+        None => vec![String::new(); table_shape(graph, table_id).1],
     }
-    else if row < head_len + body_len {
-        body.insert(row - head_len, new_row);
-    }
-    else if row < head_len + body_len + foot.len() {
-        foot.insert(row - head_len - body_len, new_row);
-    }
-    else if !foot.is_empty() {
-        foot.push(new_row);
-    }
-    else {
-        body.push(new_row);
-    }
-    Ok(())
+    .into_iter()
+    .map(|text| vec![Inline::Text { text }])
+    .collect::<Vec<_>>();
+    let revision = graph.revision;
+    let outcome = graph.insert_table_row(table_id, row, Some(contents));
+    graph.revision = revision;
+    outcome.map_err(|error| match error {
+        TransformError::EmptyTable(_) => crate::invalid("`table.insertRow` needs a table with at least one column"),
+        TransformError::RowOutOfRange { row, rows, .. } => crate::invalid(format!("`row` {row} is outside the table's {rows} rows")),
+        TransformError::CellCountMismatch { expected, actual, .. } => {
+            crate::invalid(format!("`cells` needs {expected} entries for the table grid but has {actual}"))
+        }
+        error => crate::invalid(error.to_string()),
+    })
 }
 
 fn delete_row(graph: &mut DocumentGraph, table: usize, row: usize) -> Result<(), ServiceError> {
@@ -2035,52 +1876,17 @@ fn move_table_row(graph: &mut DocumentGraph, table: usize, row: usize, index: us
 ///
 /// The copy stays inside the source's band and keeps each cell's spans. Cell
 /// content is copied into fresh graph nodes, so editing one copy leaves the
-/// other untouched.
+/// other untouched. Delegates to the upstream [`DocumentGraph::duplicate_table_row`],
+/// folding back its internal revision bump for `apply_one`.
 fn duplicate_table_row(graph: &mut DocumentGraph, table: usize, row: usize) -> Result<usize, ServiceError> {
     let table_id = table_id_at(graph, table)?;
-    let (total_rows, _) = table_shape(graph, table_id);
-    if row >= total_rows {
-        return Err(crate::invalid(format!("`row` {row} is outside the table's {total_rows} rows")));
-    }
-    let (cells, band, offset) = {
-        let node = graph.blocks.iter().find(|node| node.id == table_id).expect("the table was just resolved");
-        let Block::Table { head, body, foot, .. } = &node.block
-        else {
-            unreachable!("the id was filtered to a table block");
-        };
-        if row < head.len() {
-            (head[row].cells.clone(), 0usize, row)
-        }
-        else if row < head.len() + body.len() {
-            (body[row - head.len()].cells.clone(), 1, row - head.len())
-        }
-        else {
-            (foot[row - head.len() - body.len()].cells.clone(), 2, row - head.len() - body.len())
-        }
-    };
-    let mut new_cells = Vec::with_capacity(cells.len());
-    for cell in &cells {
-        let children = cell
-            .children
-            .iter()
-            .map(|child| duplicate_subtree(graph, *child, &mut HashMap::new()))
-            .collect();
-        new_cells.push(TableCell { children, colspan: cell.colspan, rowspan: cell.rowspan });
-    }
-    let copy = TableRow { cells: new_cells };
-    {
-        let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
-        let Block::Table { head, body, foot, .. } = &mut node.block
-        else {
-            unreachable!("the id was filtered to a table block");
-        };
-        match band {
-            0 => head.insert(offset + 1, copy),
-            1 => body.insert(offset + 1, copy),
-            _ => foot.insert(offset + 1, copy),
-        }
-    }
-    Ok(row + 1)
+    let revision = graph.revision;
+    let outcome = graph.duplicate_table_row(table_id, row);
+    graph.revision = revision;
+    outcome.map_err(|error| match error {
+        TransformError::RowOutOfRange { row, rows, .. } => crate::invalid(format!("`row` {row} is outside the table's {rows} rows")),
+        error => crate::invalid(error.to_string()),
+    })
 }
 
 /// Moves one whole grid column to another position in every row.
@@ -2143,9 +1949,15 @@ fn duplicate_table_column(graph: &mut DocumentGraph, table: usize, column: usize
         let children = cell
             .children
             .iter()
-            .map(|child| duplicate_subtree(graph, *child, &mut HashMap::new()))
-            .collect();
-        copies.push(TableCell { children, colspan: 1, rowspan: cell.rowspan });
+            .copied()
+            .filter(|child| graph.blocks.iter().any(|node| node.id == *child))
+            .collect::<Vec<_>>();
+        let revision = graph.revision;
+        let outcome = graph
+            .clone_subtree(&children)
+            .expect("every requested child was filtered to an existing block");
+        graph.revision = revision;
+        copies.push(TableCell { children: outcome.roots, colspan: 1, rowspan: cell.rowspan });
     }
     let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
     let Block::Table { head, body, foot, .. } = &mut node.block
@@ -2153,24 +1965,20 @@ fn duplicate_table_column(graph: &mut DocumentGraph, table: usize, column: usize
         unreachable!("the id was filtered to a table block");
     };
     for (row, copy) in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()).zip(copies) {
+        // `clone_subtree` attaches each copy after its source inside the cell;
+        // move the copies out so only the new cell holds them.
+        let moved = copy.children.iter().copied().collect::<HashSet<_>>();
+        row.cells[column].children.retain(|child| !moved.contains(child));
         row.cells.insert(column + 1, copy);
     }
     Ok(column + 1)
 }
 
-/// Grid index at which a new cell starts, given a target grid column.
-fn column_index(row: &TableRow, column: usize) -> usize {
-    let mut start = 0usize;
-    for (index, cell) in row.cells.iter().enumerate() {
-        let span = cell.colspan.max(1) as usize;
-        if column < start + span {
-            return index;
-        }
-        start += span;
-    }
-    row.cells.len()
-}
-
+/// Inserts one grid column at position `column`, every cell a plain paragraph.
+///
+/// Delegates to the upstream [`DocumentGraph::insert_table_column`]; the
+/// product's text cells become single-text-paragraph contents, and the internal
+/// revision bump is folded back for `apply_one`.
 fn insert_column(
     graph: &mut DocumentGraph,
     table: usize,
@@ -2178,36 +1986,26 @@ fn insert_column(
     cells: Option<Vec<String>>,
 ) -> Result<(), ServiceError> {
     let table_id = table_id_at(graph, table)?;
-    let (rows, columns) = table_shape(graph, table_id);
-    if columns == 0 {
-        return Err(crate::invalid("`table.insertColumn` needs a table with at least one column"));
-    }
-    if column > columns {
-        return Err(crate::invalid(format!("`column` {column} is outside the table's {columns} grid columns")));
-    }
-    let texts = match cells {
-        Some(values) if values.len() != rows => {
-            return Err(crate::invalid(format!(
-                "`cells` needs {rows} entries for the table's {rows} rows but has {}",
-                values.len()
-            )));
-        }
+    let contents = match cells {
         Some(values) => values,
-        None => vec![String::new(); rows],
-    };
-    let mut new_cells = texts.into_iter().map(|text| new_cell(graph, text)).collect::<std::collections::VecDeque<_>>();
-
-    let node = graph.blocks.iter_mut().find(|node| node.id == table_id).expect("the table was just resolved");
-    let Block::Table { head, body, foot, .. } = &mut node.block
-    else {
-        unreachable!("the id was filtered to a table block");
-    };
-    for target in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()) {
-        let index = column_index(target, column);
-        let cell = new_cells.pop_front().expect("one new cell was built per row");
-        target.cells.insert(index, cell);
+        None => vec![String::new(); table_shape(graph, table_id).0],
     }
-    Ok(())
+    .into_iter()
+    .map(|text| vec![Inline::Text { text }])
+    .collect::<Vec<_>>();
+    let revision = graph.revision;
+    let outcome = graph.insert_table_column(table_id, column, Some(contents));
+    graph.revision = revision;
+    outcome.map_err(|error| match error {
+        TransformError::EmptyTable(_) => crate::invalid("`table.insertColumn` needs a table with at least one column"),
+        TransformError::ColumnOutOfRange { column, columns, .. } => {
+            crate::invalid(format!("`column` {column} is outside the table's {columns} grid columns"))
+        }
+        TransformError::CellCountMismatch { expected, actual, .. } => {
+            crate::invalid(format!("`cells` needs {expected} entries for the table's {expected} rows but has {actual}"))
+        }
+        error => crate::invalid(error.to_string()),
+    })
 }
 
 fn delete_column(graph: &mut DocumentGraph, table: usize, column: usize) -> Result<(), ServiceError> {
@@ -2806,18 +2604,25 @@ fn duplicate_list_item(graph: &mut DocumentGraph, id: NodeId, item: usize) -> Re
         }
         (*ordered, items[item].clone())
     };
-    let mut ids = HashMap::new();
-    let mut children = Vec::new();
-    for child in &copied.children {
-        if graph.blocks.iter().any(|node| node.id == *child) {
-            children.push(duplicate_subtree(graph, *child, &mut ids));
-        }
-    }
+    let existing = copied
+        .children
+        .iter()
+        .copied()
+        .filter(|child| graph.blocks.iter().any(|node| node.id == *child))
+        .collect::<Vec<_>>();
+    let revision = graph.revision;
+    let outcome = graph.clone_subtree(&existing).expect("every requested child was filtered to an existing block");
+    graph.revision = revision;
+    let children = outcome.roots;
     let node = graph.blocks.iter_mut().find(|node| node.id == id).expect("the list was just resolved");
     let Block::List { ordered: list_ordered, items, .. } = &mut node.block
     else {
         unreachable!("the list was just checked");
     };
+    // `clone_subtree` attaches each copy after its source inside the source
+    // item; move the copies out so only the duplicated item holds them.
+    let moved = children.iter().copied().collect::<HashSet<_>>();
+    items[item].children.retain(|child| !moved.contains(child));
     let base = if ordered { items.first().and_then(|entry| entry.number).unwrap_or(1) } else { 0 };
     items.insert(
         item + 1,
@@ -2914,6 +2719,18 @@ fn set_heading_text(graph: &mut DocumentGraph, id: NodeId, text: &str) -> Result
             Ok(label)
         }
         _ => Err(crate::invalid("`heading.setText` needs a heading section; the addressed block is not one")),
+    }
+}
+
+/// Collects one node and all of its descendants (cycle-safe).
+fn collect_subtree(graph: &DocumentGraph, id: NodeId, doomed: &mut HashSet<NodeId>) {
+    if !doomed.insert(id) {
+        return;
+    }
+    if let Some(node) = graph.blocks.iter().find(|node| node.id == id) {
+        for child in document_ir::child_ids(&node.block) {
+            collect_subtree(graph, child, doomed);
+        }
     }
 }
 
@@ -3205,6 +3022,41 @@ fn convert_block(
         }
     }
     Ok(from.label())
+}
+
+/// Inserts `new_id` directly after `target` inside the container that owns
+/// `target`, returning `false` when `target` is a top-level block.
+fn insert_after_source(graph: &mut DocumentGraph, target: NodeId, new_id: NodeId) -> bool {
+    for node in &mut graph.blocks {
+        match &mut node.block {
+            Block::Section { children, .. } | Block::Quote { children } => {
+                if let Some(position) = children.iter().position(|child| *child == target) {
+                    children.insert(position + 1, new_id);
+                    return true;
+                }
+            }
+            Block::List { items, .. } => {
+                for item in items {
+                    if let Some(position) = item.children.iter().position(|child| *child == target) {
+                        item.children.insert(position + 1, new_id);
+                        return true;
+                    }
+                }
+            }
+            Block::Table { head, body, foot, .. } => {
+                for row in head.iter_mut().chain(body.iter_mut()).chain(foot.iter_mut()) {
+                    for cell in &mut row.cells {
+                        if let Some(position) = cell.children.iter().position(|child| *child == target) {
+                            cell.children.insert(position + 1, new_id);
+                            return true;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Places an existing node directly after `anchor`: inside the container that

@@ -2309,6 +2309,123 @@ fn table_rows_sort_by_numeric_and_text_keys() {
 }
 
 #[test]
+fn duplicated_subtree_keeps_nested_structure_through_a_docx_round_trip() {
+    let workspace = Workspace::new("clone-docx");
+    let created = create(&json!({ "title": "Clone round trip" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "heading.append", "level": 1, "text": "Alpha" },
+        { "type": "paragraph.append", "text": "First paragraph." },
+        { "type": "list.append", "items": ["item one"] },
+    ] }))
+    .expect("seed");
+    let seeded = summary(handle).expect("summary");
+    let source = seeded["sections"][0]["id"].as_str().expect("section id").to_owned();
+
+    let duplicated =
+        edit(handle, &json!({ "operations": [{ "type": "block.duplicate", "id": source }] })).expect("duplicate section");
+    assert_eq!(revision_of(&duplicated), revision_of(&seeded) + 1, "the migrated clone still bumps once");
+    let sections = duplicated["document"]["sections"].as_array().expect("sections");
+    assert_eq!(sections.len(), 2);
+    assert_eq!(sections[0]["title"], json!("Alpha"));
+    assert_eq!(sections[1]["title"], json!("Alpha"));
+    assert_ne!(sections[1]["id"], sections[0]["id"], "the copy is a fresh subtree");
+    assert_eq!(summary_text(&duplicated["document"]), "First paragraph.\nFirst paragraph.", "the nested paragraph is copied");
+    let hits = find(handle, "item one", None).expect("find");
+    assert_eq!(hits.as_array().expect("hits").len(), 2, "the nested list is copied: {hits}");
+
+    let docx = workspace.path("clone.docx");
+    export(handle, "docx", &docx, false).expect("export docx");
+    let reopened = open(&docx).expect("open docx");
+    let reopened_handle = handle_of(&reopened);
+    let reopened_sections = reopened["document"]["sections"].as_array().expect("sections");
+    assert_eq!(reopened_sections.len(), 2, "both sections survive the Word round trip");
+    for section in reopened_sections {
+        assert_eq!(section["title"], json!("Alpha"), "the nested structure is rebuilt: {reopened}");
+    }
+    assert_eq!(
+        summary_text(&reopened["document"]),
+        "First paragraph.\nFirst paragraph.",
+        "the copied paragraphs read back unchanged: {}",
+        summary_text(&reopened["document"])
+    );
+    let hits = find(reopened_handle, "item one", None).expect("find");
+    assert_eq!(hits.as_array().expect("hits").len(), 2, "the copied list reads back: {hits}");
+
+    close(reopened_handle).expect("close reopened");
+    close(handle).expect("close");
+}
+
+#[test]
+fn merged_cell_span_survives_duplicate_and_a_docx_round_trip() {
+    let workspace = Workspace::new("span-docx");
+    let created = create(&json!({ "title": "Span round trip" })).expect("create");
+    let handle = handle_of(&created);
+    edit(handle, &json!({ "operations": [
+        { "type": "table.append", "rows": [["a", "b"], ["1", "2"]] },
+        { "type": "table.setCellSpan", "table": 0, "row": 1, "column": 0, "colspan": 2, "rowspan": 1 },
+    ] }))
+    .expect("merge");
+
+    let project = workspace.path("span.oword");
+    save(handle, &project, false).expect("save project");
+    let envelope: Value = serde_json::from_slice(&fs::read(&project).expect("read project")).expect("parse project");
+    let table = envelope["document"]["blocks"]
+        .as_array()
+        .expect("blocks")
+        .iter()
+        .find(|node| node["block"].get("Table").is_some())
+        .expect("table block");
+    let table_id = format!("node-{}", table["id"].as_u64().expect("table id"));
+    assert_eq!(table["block"]["Table"]["body"][0]["cells"][0]["colspan"], json!(2));
+    assert_eq!(table["block"]["Table"]["body"][0]["cells"].as_array().expect("cells").len(), 1);
+
+    let duplicated =
+        edit(handle, &json!({ "operations": [{ "type": "block.duplicate", "id": table_id }] })).expect("duplicate table");
+    assert_eq!(duplicated["document"]["tables"].as_array().expect("tables").len(), 2);
+
+    let after = workspace.path("span-after.oword");
+    save(handle, &after, false).expect("save project");
+    let envelope: Value = serde_json::from_slice(&fs::read(&after).expect("read project")).expect("parse project");
+    let tables = envelope["document"]["blocks"]
+        .as_array()
+        .expect("blocks")
+        .iter()
+        .filter(|node| node["block"].get("Table").is_some())
+        .collect::<Vec<_>>();
+    assert_eq!(tables.len(), 2);
+    for entry in &tables {
+        assert_eq!(entry["block"]["Table"]["body"][0]["cells"][0]["colspan"], json!(2), "the copy keeps the merged span");
+    }
+
+    let docx = workspace.path("span.docx");
+    export(handle, "docx", &docx, false).expect("export docx");
+    let reopened = open(&docx).expect("open docx");
+    let reopened_handle = handle_of(&reopened);
+    let reopened_project = workspace.path("span-reopened.oword");
+    save(reopened_handle, &reopened_project, false).expect("save reopened");
+    let envelope: Value =
+        serde_json::from_slice(&fs::read(&reopened_project).expect("read reopened")).expect("parse reopened");
+    let tables = envelope["document"]["blocks"]
+        .as_array()
+        .expect("blocks")
+        .iter()
+        .filter(|node| node["block"].get("Table").is_some())
+        .collect::<Vec<_>>();
+    assert_eq!(tables.len(), 2, "both tables survive the Word round trip");
+    for entry in &tables {
+        let body = &entry["block"]["Table"]["body"];
+        assert_eq!(body[0]["cells"].as_array().expect("cells").len(), 1, "the merged row keeps one anchor cell");
+        assert_eq!(body[0]["cells"][0]["colspan"], json!(2), "the anchor keeps its span");
+    }
+    let hits = find(reopened_handle, "2", None).expect("find");
+    assert!(hits.as_array().expect("hits").is_empty(), "the consumed cell text stays gone: {hits}");
+
+    close(reopened_handle).expect("close reopened");
+    close(handle).expect("close");
+}
+
+#[test]
 fn table_bands_accept_multiple_header_and_footer_rows() {
     let workspace = Workspace::new("bands");
     let opened = open(&workspace.markdown("report.md", FIXTURE)).expect("open fixture");

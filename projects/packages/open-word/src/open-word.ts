@@ -82,7 +82,7 @@ export class OpenWord {
         const intent = input?.intent ?? 'edit';
         if (intent !== 'edit') {
             throw new OpenWordError(
-                'format/unsupported',
+                'capability/not-implemented',
                 `native documents open for editing; \`${intent}\` needs the projection pipeline`,
                 { details: { feature: `open.intent.${intent}` } },
             );

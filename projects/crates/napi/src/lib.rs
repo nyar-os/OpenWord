@@ -26,22 +26,24 @@ use wae::{
 };
 
 fn failure_of(error: open_word_document::ServiceError) -> Error {
-    let mut mapped = Error::new(error.message().to_owned()).code(error.code().to_owned());
-    if !error.params().is_null() {
-        mapped = mapped.detail(json!({ "params": error.params() }));
-    }
-    mapped
+    Error::new(error.message().to_owned())
+        .code(error.code().to_owned())
+        .detail(json!({ "params": error.params_json() }))
+}
+
+fn argument_error(message: impl Into<String>) -> Error {
+    failure_of(open_word_document::ServiceError::argument(message))
 }
 
 fn argument(ctx: &CallContext, index: usize) -> Result<JsValue> {
-    ctx.args().get(index).copied().ok_or_else(|| Error::new("a required argument is missing").code("session/argument-invalid"))
+    ctx.args().get(index).copied().ok_or_else(|| argument_error("a required argument is missing"))
 }
 
 fn handle(ctx: &CallContext, index: usize) -> Result<u64> {
     argument(ctx, index)?
         .as_i64()?
         .try_into()
-        .map_err(|_| Error::new("`handle` must be a non-negative integer").code("session/argument-invalid"))
+        .map_err(|_| argument_error("`handle` must be a non-negative integer"))
 }
 
 fn text(ctx: &CallContext, index: usize) -> Result<String> {
@@ -52,7 +54,7 @@ fn optional_steps(ctx: &CallContext, index: usize) -> Result<Option<u32>> {
     match ctx.args().get(index).copied() {
         Some(value) if !value.is_undefined()? => {
             let raw = value.as_i64()?;
-            u32::try_from(raw).map(Some).map_err(|_| Error::new("`steps` must be a positive integer").code("session/argument-invalid"))
+            u32::try_from(raw).map(Some).map_err(|_| argument_error("`steps` must be a positive integer"))
         }
         _ => Ok(None),
     }
@@ -81,7 +83,7 @@ fn capabilities(ctx: CallContext) -> Result<JsValue> {
 fn document_create(ctx: CallContext) -> Result<JsValue> {
     let raw = text(&ctx, 0)?;
     let request: Value =
-        serde_json::from_str(&raw).map_err(|error| Error::new(error.to_string()).code("session/argument-invalid"))?;
+        serde_json::from_str(&raw).map_err(|error| argument_error(error.to_string()))?;
     respond(&ctx, &open_word_document::create(&request).map_err(failure_of)?)
 }
 
@@ -109,7 +111,7 @@ fn document_inspect(ctx: CallContext) -> Result<JsValue> {
         Some(value) if !value.is_undefined()? => {
             let raw = value.as_string()?;
             let names: Vec<String> =
-                serde_json::from_str(&raw).map_err(|error| Error::new(error.to_string()).code("session/argument-invalid"))?;
+                serde_json::from_str(&raw).map_err(|error| argument_error(error.to_string()))?;
             Some(names)
         }
         _ => None,
@@ -148,7 +150,7 @@ fn document_find(ctx: CallContext) -> Result<JsValue> {
             let raw = value.as_i64()?;
             Some(
                 u32::try_from(raw)
-                    .map_err(|_| Error::new("`limit` must be a non-negative integer").code("session/argument-invalid"))?,
+                    .map_err(|_| argument_error("`limit` must be a non-negative integer"))?,
             )
         }
         _ => None,
@@ -162,7 +164,7 @@ fn document_replace(ctx: CallContext) -> Result<JsValue> {
     let handle = handle(&ctx, 0)?;
     let raw = text(&ctx, 1)?;
     let request: Value =
-        serde_json::from_str(&raw).map_err(|error| Error::new(error.to_string()).code("session/argument-invalid"))?;
+        serde_json::from_str(&raw).map_err(|error| argument_error(error.to_string()))?;
     respond(&ctx, &open_word_document::replace(handle, &request).map_err(failure_of)?)
 }
 
@@ -172,7 +174,7 @@ fn document_edit(ctx: CallContext) -> Result<JsValue> {
     let handle = handle(&ctx, 0)?;
     let raw = text(&ctx, 1)?;
     let request: Value =
-        serde_json::from_str(&raw).map_err(|error| Error::new(error.to_string()).code("session/argument-invalid"))?;
+        serde_json::from_str(&raw).map_err(|error| argument_error(error.to_string()))?;
     respond(&ctx, &open_word_document::edit(handle, &request).map_err(failure_of)?)
 }
 
@@ -378,15 +380,11 @@ fn reply(id: Value, kind: &str, payload: Value) -> IpcOutcome {
 }
 
 fn service_failure(error: open_word_document::ServiceError) -> Value {
-    let mut payload = json!({ "code": error.code(), "message": error.message() });
-    if !error.params().is_null() {
-        payload["params"] = error.params().clone();
-    }
-    payload
+    json!({ "code": error.code(), "message": error.message(), "params": error.params_json() })
 }
 
 fn argument_failure(message: &str) -> Value {
-    json!({ "code": "session/argument-invalid", "message": message })
+    service_failure(open_word_document::ServiceError::argument(message))
 }
 
 fn document_outcome(id: Value, kind: &str, result: std::result::Result<Value, open_word_document::ServiceError>) -> IpcOutcome {

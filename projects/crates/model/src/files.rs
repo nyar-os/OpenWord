@@ -253,13 +253,14 @@ fn read_text(path: &Path) -> Result<String, ServiceError> {
 }
 
 fn format_failure(error: FormatError) -> ServiceError {
-    let message = error.to_string();
-    let code = match &error {
-        FormatError::NotImplemented { .. } | FormatError::Unsupported { .. } => "format/unsupported",
-        FormatError::Budget { .. } => "session/budget-exceeded",
-        FormatError::InvalidInput { .. } | FormatError::Parse { .. } => "format/invalid",
-    };
-    ServiceError::forward(code, message)
+    match error {
+        FormatError::NotImplemented { format, .. } | FormatError::Unsupported { format, .. } => {
+            ServiceError::unsupported(&format)
+        }
+        FormatError::Parse { format, message } => ServiceError::invalid(&format, message),
+        FormatError::InvalidInput { message } => ServiceError::invalid("document", message),
+        FormatError::Budget { message, .. } => ServiceError::budget(message),
+    }
 }
 
 fn write_atomically(path: &Path, bytes: &[u8], overwrite: bool) -> Result<(), ServiceError> {

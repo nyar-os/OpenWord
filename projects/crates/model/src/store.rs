@@ -53,12 +53,10 @@ impl document_session::Revisioned for Entry {
 
 impl From<document_session::SessionError> for ServiceError {
     fn from(error: document_session::SessionError) -> Self {
-        match error.kind {
-            document_session::SessionErrorKind::NotFound => ServiceError::forward("document/not-found", error.message),
-            document_session::SessionErrorKind::UndoUnavailable | document_session::SessionErrorKind::RedoUnavailable => {
-                ServiceError::forward("session/argument-invalid", error.message)
-            }
-        }
+        // Absence is reported through `Option` at every call site, so a
+        // session-level failure is always a rejected request, never a handle
+        // without its frozen payload.
+        ServiceError::argument(error.message)
     }
 }
 

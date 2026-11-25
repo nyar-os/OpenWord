@@ -6,15 +6,8 @@
  * here knows about a command line.
  */
 
-import {
-    NotImplementedError,
-    OpenWordError,
-    errorCodes,
-    renderErrorCopy,
-    type OpenWordErrorCode,
-    type OpenWordErrorParams,
-} from './errors.js';
-import { nativeBinding } from './native.js';
+import { NotImplementedError, OpenWordError, failureFrom, renderErrorCopy } from './errors.js';
+import { nativeBinding, readNativeFailure } from './native.js';
 import type {
     Document,
     DocumentCapabilities,
@@ -38,8 +31,6 @@ import type {
     UndoResult,
 } from './types.js';
 
-const knownCodes = new Set<string>(errorCodes);
-
 function binding(feature: string) {
     const native = nativeBinding();
     if (!native) {
@@ -60,33 +51,29 @@ function translate(error: unknown): OpenWordError {
     if (error instanceof OpenWordError) {
         return error;
     }
-    const native = error instanceof Error ? (error as Error & { code?: unknown; detail?: unknown }) : undefined;
-    const message = native ? native.message : String(error);
-    const rawCode = native?.code;
-    const code = typeof rawCode === 'string' ? rawCode : undefined;
-    if (code !== undefined) {
-        const params = readParams(native?.detail);
-        return new OpenWordError(code as OpenWordErrorCode, renderErrorCopy(code, params, message), { params, cause: error });
+    const native = readNativeFailure(error);
+    if (native === undefined) {
+        const message = error instanceof Error ? error.message : String(error);
+        const params = { reason: message };
+        return new OpenWordError('binding/failure', renderErrorCopy('binding/failure', params, message), {
+            params,
+            cause: error,
+        });
     }
-    // Compatibility entry for addons older than the structured contract, which
-    // concatenated `code: message` into the Error text. Current bindings always
-    // carry `code` and `detail.params`, so this split never runs against them.
-    const separator = message.indexOf(': ');
-    const legacy = separator > 0 ? message.slice(0, separator) : '';
-    if (knownCodes.has(legacy)) {
-        return new OpenWordError(legacy as OpenWordErrorCode, message.slice(separator + 2), { cause: error });
-    }
-    return new OpenWordError('binding/failure', message, { cause: error });
-}
-
-function readParams(detail: unknown): OpenWordErrorParams {
-    if (typeof detail === 'object' && detail !== null) {
-        const params = (detail as { params?: unknown }).params;
-        if (typeof params === 'object' && params !== null && !Array.isArray(params)) {
-            return params as OpenWordErrorParams;
-        }
-    }
-    return {};
+    // Branch on the code and its frozen payload; the native text is display only.
+    const failure = failureFrom(native.code, native.message, native.detail.params);
+    return new OpenWordError(failure.code, renderErrorCopy(failure.code, failure.params, native.message), {
+        params: failure.params,
+        details: {
+            revision: native.detail.revision,
+            documentId: native.detail.documentId,
+            objectId: native.detail.objectId,
+            format: native.detail.format,
+            feature: native.detail.feature,
+        },
+        recoverable: native.detail.recoverable,
+        cause: error,
+    });
 }
 
 /** A released-on-close document handle plus its committed summary and import losses. */

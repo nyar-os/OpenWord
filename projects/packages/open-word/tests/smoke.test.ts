@@ -90,7 +90,7 @@ test('open rejects a non-editing intent before reaching the engine', async () =>
     const word = new OpenWord();
     await assert.rejects(
         word.open({ path: 'template.dotx', intent: 'template' }),
-        (error: unknown) => error instanceof OpenWordError && error.code === 'format/unsupported',
+        (error: unknown) => error instanceof OpenWordError && error.code === 'capability/not-implemented',
     );
     await word.dispose();
 });
@@ -271,9 +271,11 @@ test('real binding failures carry the typed params of their code', { skip: witho
             word.open({ path: join(tmpdir(), 'open-word-missing-file.docx') }),
             (error: unknown) => {
                 assert.ok(error instanceof OpenWordError);
-                assert.equal(error.code, 'io/read');
-                assert.equal(error.params.kind, 'NotFound');
-                assert.equal(typeof error.params.path, 'string');
+                const failure = error.failure;
+                assert.equal(failure.code, 'io/read');
+                if (failure.code !== 'io/read') return false;
+                assert.equal(failure.params.kind, 'NotFound');
+                assert.equal(typeof failure.params.path, 'string');
                 return true;
             },
         );
@@ -283,8 +285,10 @@ test('real binding failures carry the typed params of their code', { skip: witho
             word.edit([{ type: 'block.duplicate', id: 'node-999999' }]),
             (error: unknown) => {
                 assert.ok(error instanceof OpenWordError);
-                assert.equal(error.code, 'object/not-found');
-                assert.equal(error.params.kind, 'block');
+                const failure = error.failure;
+                assert.equal(failure.code, 'object/not-found');
+                if (failure.code !== 'object/not-found') return false;
+                assert.equal(failure.params.kind, 'block');
                 return true;
             },
         );

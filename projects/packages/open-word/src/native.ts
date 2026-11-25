@@ -37,6 +37,45 @@ export interface NativeBinding {
 
 let cached: NativeBinding | null | undefined;
 
+/**
+ * One failure as the addon reports it.
+ *
+ * `code` and `detail.params` are the machine contract; `message` is display
+ * text only. `detail` also carries the optional locators beside the payload.
+ */
+export interface NativeFailure {
+    readonly code: string;
+    readonly message: string;
+    readonly detail: {
+        readonly params?: unknown;
+        readonly revision?: number;
+        readonly documentId?: string;
+        readonly objectId?: string;
+        readonly format?: string;
+        readonly feature?: string;
+        readonly recoverable?: boolean;
+    };
+}
+
+/**
+ * Reads one thrown native value into {@link NativeFailure}, or `undefined` when
+ * it carries no stable code.
+ *
+ * This only reads fields: no branch compares message text.
+ */
+export function readNativeFailure(error: unknown): NativeFailure | undefined {
+    if (typeof error !== 'object' || error === null) {
+        return undefined;
+    }
+    const candidate = error as { code?: unknown; message?: unknown; detail?: unknown };
+    if (typeof candidate.code !== 'string' || candidate.code.length === 0) {
+        return undefined;
+    }
+    const detail = typeof candidate.detail === 'object' && candidate.detail !== null ? (candidate.detail as NativeFailure['detail']) : {};
+    const message = typeof candidate.message === 'string' ? candidate.message : String(error);
+    return { code: candidate.code, message, detail };
+}
+
 /** Loads the addon once, or returns `undefined` when it is not installed. */
 export function nativeBinding(): NativeBinding | undefined {
     if (cached === undefined) {

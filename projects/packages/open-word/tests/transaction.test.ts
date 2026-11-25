@@ -132,8 +132,10 @@ test('an unknown swap target rolls the whole transform batch back', { skip: with
         ]),
         (error: unknown) => {
             assert.ok(error instanceof OpenWordError);
-            assert.equal(error.code, 'object/not-found');
-            assert.equal(error.params.kind, 'block');
+            const failure = error.failure;
+            assert.equal(failure.code, 'object/not-found');
+            if (failure.code !== 'object/not-found') return false;
+            assert.equal(failure.params.kind, 'block');
             return true;
         },
     );
@@ -167,8 +169,10 @@ test('a stale expectedRevision rejects a transform batch without applying any op
         ),
         (error: unknown) => {
             assert.ok(error instanceof OpenWordError);
-            assert.equal(error.code, 'document/revision-conflict');
-            assert.equal(error.params.expected, created.revision);
+            const failure = error.failure;
+            assert.equal(failure.code, 'document/revision-conflict');
+            if (failure.code !== 'document/revision-conflict') return false;
+            assert.equal(failure.params.expected, created.revision);
             return true;
         },
     );

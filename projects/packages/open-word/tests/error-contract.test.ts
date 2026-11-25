@@ -3,8 +3,8 @@
  *
  * The stub replaces the native display text on purpose: the SDK must still
  * branch on the machine-readable `code` and typed `params`, never on prose.
- * Unknown codes, missing translations, broken payloads and the legacy
- * `code: message` adapter all run through the same path.
+ * Unknown codes, malformed payloads and the `binding/failure` fallback all run
+ * through the same path.
  */
 
 import assert from 'node:assert/strict';
@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { isOpenWordError, setErrorLocale, type OpenWordError } from '../src/errors.js';
+import { isOpenWordError, parseErrorParams, setErrorLocale, type OpenWordError } from '../src/errors.js';
 import * as service from '../src/service.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'open-word-stub-'));
@@ -58,33 +58,61 @@ test('structured binding failures keep their code and typed params', () => {
     assert.equal(error.message, 'the `block` `42` was not found', 'the product copy replaces the native text');
 });
 
-test('unknown codes are preserved instead of being misclassified', () => {
-    process.env.OPEN_WORD_STUB = JSON.stringify({ message: 'native text kept', code: 'weird/code' });
-    const error = capture();
-    assert.equal(error.code, 'weird/code');
-    assert.equal(error.message, 'native text kept', 'a missing translation falls back to the binding text');
+test('strict params reject missing, extra and mistyped keys', () => {
+    assert.deepEqual(parseErrorParams('document/not-found', {}), { ok: true, params: {} }, 'a session without an open document names no handle');
+    assert.equal(parseErrorParams('document/not-found', { handle: '7' }).ok, false, 'a handle must be a number');
+    assert.equal(
+        parseErrorParams('io/exists', { path: 'report.docx', legacy: true }).ok,
+        false,
+        'a key outside the frozen shape is refused',
+    );
+    assert.equal(
+        parseErrorParams('document/revision-conflict', { actual: '7' }).ok,
+        false,
+        'a revision must be a number',
+    );
+    assert.equal(parseErrorParams('weird/code', {}).ok, false, 'an unknown code has no frozen shape');
+    assert.deepEqual(parseErrorParams('object/not-found', { kind: 'block', id: '42' }), {
+        ok: true,
+        params: { kind: 'block', id: '42' },
+    });
 });
 
-test('a broken params payload degrades to an empty parameter map', () => {
+test('a malformed payload falls back to binding/failure with the original code and text', () => {
     process.env.OPEN_WORD_STUB = JSON.stringify({ message: 'disk said no', code: 'io/exists', detail: { params: 'not-an-object' } });
     const error = capture();
-    assert.equal(error.code, 'io/exists');
-    assert.deepEqual(error.params, {});
-    assert.equal(error.message, 'disk said no', 'an unrenderable template keeps the binding text');
+    assert.equal(error.code, 'binding/failure');
+    assert.deepEqual(error.params, { reason: 'disk said no', code: 'io/exists' });
+    assert.equal(error.message, 'the native binding reported a failure: disk said no', 'the binding text is kept as payload');
 });
 
-test('legacy `code: message` concatenation still decodes at the adapter entry', () => {
+test('missing required params land on binding/failure', () => {
+    process.env.OPEN_WORD_STUB = JSON.stringify({ message: 'no such block', code: 'object/not-found', detail: { params: { kind: 'block' } } });
+    const error = capture();
+    assert.equal(error.code, 'binding/failure');
+    assert.deepEqual(error.params, { reason: 'no such block', code: 'object/not-found' });
+});
+
+test('prose that looks like a legacy code is not parsed', () => {
     process.env.OPEN_WORD_STUB = JSON.stringify({ message: 'document/not-found: old binding text' });
     const error = capture();
-    assert.equal(error.code, 'document/not-found');
-    assert.equal(error.message, 'old binding text');
+    assert.equal(error.code, 'binding/failure', 'a message never decides the code');
+    assert.deepEqual(error.params, { reason: 'document/not-found: old binding text' });
+});
+
+test('unknown codes land on binding/failure and keep the original code in params', () => {
+    process.env.OPEN_WORD_STUB = JSON.stringify({ message: 'native text kept', code: 'weird/code' });
+    const error = capture();
+    assert.equal(error.code, 'binding/failure');
+    assert.deepEqual(error.params, { reason: 'native text kept', code: 'weird/code' });
 });
 
 test('a failure without any code surfaces as binding/failure', () => {
     process.env.OPEN_WORD_STUB = JSON.stringify({ message: 'boom' });
     const error = capture();
     assert.equal(error.code, 'binding/failure');
-    assert.equal(error.message, 'boom');
+    assert.deepEqual(error.params, { reason: 'boom' });
+    assert.equal(error.message, 'the native binding reported a failure: boom');
 });
 
 test('zh-CN rendering changes only the copy, never the machine fields', () => {
@@ -99,6 +127,24 @@ test('zh-CN rendering changes only the copy, never the machine fields', () => {
         assert.equal(error.code, 'object/not-found');
         assert.deepEqual(error.params, { kind: 'block', id: '42' });
         assert.equal(error.message, '未找到 `block` `42`');
+    } finally {
+        setErrorLocale('en');
+    }
+});
+
+test('switching locale never moves the code or the params', () => {
+    process.env.OPEN_WORD_STUB = JSON.stringify({
+        message: 'REPLACED NATIVE TEXT',
+        code: 'document/revision-conflict',
+        detail: { params: { actual: 7, expected: 6 } },
+    });
+    const en = capture();
+    setErrorLocale('zh-CN');
+    try {
+        const zh = capture();
+        assert.equal(zh.code, en.code);
+        assert.deepEqual(zh.params, en.params);
+        assert.notEqual(zh.message, en.message, 'only the copy changes');
     } finally {
         setErrorLocale('en');
     }

@@ -18,6 +18,7 @@ mod store;
 use std::{fmt, io, path::Path};
 
 use document_ir::DocumentGraph;
+use document_ir::error::params::{ErrorParams, ObjectKind};
 use serde_json::{Map, Value, json};
 
 /// Every document format the product classifies.
@@ -64,20 +65,14 @@ const EXPORT_TARGETS: &[&str] = &["docx", "dotx", "pdf", "html", "md", "txt", "r
 /// forwarding upstream codes that already carry their own contract.
 #[derive(Debug)]
 pub struct ServiceError {
-    code: String,
     message: String,
-    params: Value,
+    params: ErrorParams,
     source: Option<Box<dyn std::error::Error + Send + Sync>>,
 }
 
 impl ServiceError {
-    fn build(code: &str, message: impl Into<String>) -> Self {
-        Self { code: code.to_owned(), message: message.into(), params: Value::Null, source: None }
-    }
-
-    fn with_params(mut self, params: Value) -> Self {
-        self.params = params;
-        self
+    fn build(params: ErrorParams, message: impl Into<String>) -> Self {
+        Self { message: message.into(), params, source: None }
     }
 
     fn source(mut self, error: impl std::error::Error + Send + Sync + 'static) -> Self {
@@ -85,94 +80,108 @@ impl ServiceError {
         self
     }
 
-    /// Crate-internal forwarder for an upstream code that already carries its own contract.
-    pub(crate) fn forward(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), params: Value::Null, source: None }
-    }
-
     /// `session/argument-invalid`: a request parameter was rejected.
-    pub fn argument(message: impl Into<String>) -> Self {
-        Self::build("session/argument-invalid", message)
+    pub fn argument(reason: impl Into<String>) -> Self {
+        let reason = reason.into();
+        Self::build(ErrorParams::ArgumentInvalid { reason: reason.clone() }, reason)
     }
 
     /// `document/not-found`: no live document has this handle.
     pub fn document_not_found(handle: u64) -> Self {
-        Self::build("document/not-found", format!("no live document has handle {handle}")).with_params(json!({ "handle": handle }))
+        Self::build(ErrorParams::DocumentNotFound { handle: Some(handle) }, format!("no live document has handle {handle}"))
     }
 
     /// `document/revision-conflict`: the document moved past the expected revision.
     pub fn revision_conflict(expected: u64, actual: u64) -> Self {
         Self::build(
-            "document/revision-conflict",
+            ErrorParams::RevisionConflict { actual, expected: Some(expected) },
             format!("expected revision {expected} but the document is at revision {actual}"),
         )
-        .with_params(json!({ "expected": expected, "actual": actual }))
     }
 
     /// `object/not-found`: the addressed object is absent from the document.
-    pub fn not_found(kind: &str, id: impl fmt::Display) -> Self {
+    pub fn not_found(kind: ObjectKind, id: impl fmt::Display) -> Self {
         let id = id.to_string();
-        Self::build("object/not-found", format!("`{kind}` `{id}` does not exist")).with_params(json!({ "kind": kind, "id": id }))
+        Self::build(
+            ErrorParams::NotFound { kind, id: id.clone() },
+            format!("`{}` `{id}` does not exist", kind.as_str()),
+        )
     }
 
     /// `object/not-found`: no block carries this id.
     pub fn block_not_found(id: impl fmt::Display) -> Self {
         let id = id.to_string();
-        Self::build("object/not-found", format!("no block has id {id}")).with_params(json!({ "kind": "block", "id": id }))
+        Self::build(ErrorParams::NotFound { kind: ObjectKind::Block, id: id.clone() }, format!("no block has id {id}"))
     }
 
     /// `object/unsupported`: the edit operation name is not implemented.
     pub fn operation_unsupported(operation: &str) -> Self {
-        Self::build("object/unsupported", format!("edit operation `{operation}` is not supported"))
-            .with_params(json!({ "operation": "edit operation", "name": operation }))
+        Self::build(
+            ErrorParams::Unsupported { operation: "edit operation".to_owned(), name: operation.to_owned() },
+            format!("edit operation `{operation}` is not supported"),
+        )
     }
 
     /// `object/unsupported`: the merge mode is not implemented.
     pub fn merge_mode_unsupported(mode: &str) -> Self {
-        Self::build("object/unsupported", format!("merge mode `{mode}` is not supported"))
-            .with_params(json!({ "operation": "merge mode", "name": mode }))
+        Self::build(
+            ErrorParams::Unsupported { operation: "merge mode".to_owned(), name: mode.to_owned() },
+            format!("merge mode `{mode}` is not supported"),
+        )
     }
 
     /// `format/invalid`: an input or serialization failed format validation.
     pub fn invalid(format: &str, reason: impl Into<String>) -> Self {
         let reason = reason.into();
-        Self::build("format/invalid", format!("`{format}` input is invalid: {reason}"))
-            .with_params(json!({ "format": format, "reason": reason }))
+        Self::build(
+            ErrorParams::FormatInvalid { format: format.to_owned(), reason: reason.clone() },
+            format!("`{format}` input is invalid: {reason}"),
+        )
     }
 
     /// `format/unsupported`: the requested format has no route in this build.
     pub fn unsupported(format: &str) -> Self {
-        Self::build("format/unsupported", format!("`{format}` has no route in this build")).with_params(json!({ "format": format }))
+        Self::build(
+            ErrorParams::FormatUnsupported { format: format.to_owned() },
+            format!("`{format}` has no route in this build"),
+        )
     }
 
     /// `session/budget-exceeded`: an upstream budget refused the operation.
-    pub fn budget(message: impl Into<String>) -> Self {
-        Self::build("session/budget-exceeded", message)
+    pub fn budget(reason: impl Into<String>) -> Self {
+        let reason = reason.into();
+        Self::build(ErrorParams::BudgetExceeded, reason)
     }
 
     /// `io/read`: reading a file failed; the OS error kind is preserved.
     pub fn io_read(path: &Path, error: io::Error) -> Self {
         let kind = format!("{:?}", error.kind());
-        Self::build("io/read", format!("could not read `{}`: {error}", path.display()))
-            .with_params(json!({ "path": path.display().to_string(), "kind": kind }))
-            .source(error)
+        Self::build(
+            ErrorParams::IoRead { path: path.display().to_string(), kind },
+            format!("could not read `{}`: {error}", path.display()),
+        )
+        .source(error)
     }
 
     /// `io/write`: publishing a file failed.
     pub fn io_write(path: &Path, reason: impl Into<String>) -> Self {
-        Self::build("io/write", format!("could not publish `{}`: {}", path.display(), reason.into()))
-            .with_params(json!({ "path": path.display().to_string() }))
+        Self::build(
+            ErrorParams::IoWrite { path: path.display().to_string() },
+            format!("could not publish `{}`: {}", path.display(), reason.into()),
+        )
     }
 
     /// `io/exists`: the target is present and overwrite was not granted.
     pub fn io_exists(path: &Path) -> Self {
-        Self::build("io/exists", format!("`{}` already exists; pass overwrite to replace it", path.display()))
-            .with_params(json!({ "path": path.display().to_string() }))
+        Self::build(
+            ErrorParams::IoExists { path: path.display().to_string() },
+            format!("`{}` already exists; pass overwrite to replace it", path.display()),
+        )
     }
 
     /// Stable, comparable code.
-    pub fn code(&self) -> &str {
-        &self.code
+    pub fn code(&self) -> &'static str {
+        self.params.code()
     }
 
     /// Human-readable message; never carries binary payloads.
@@ -180,15 +189,20 @@ impl ServiceError {
         &self.message
     }
 
-    /// Typed per-code parameters, or `Value::Null` when the code carries none.
-    pub fn params(&self) -> &Value {
+    /// Typed per-code parameters, frozen by [`ErrorParams`].
+    pub fn params(&self) -> &ErrorParams {
         &self.params
+    }
+
+    /// Serialises the frozen parameters for a binding envelope.
+    pub fn params_json(&self) -> Value {
+        self.params.to_json()
     }
 }
 
 impl fmt::Display for ServiceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}: {}", self.code, self.message)
+        write!(formatter, "{}: {}", self.code(), self.message)
     }
 }
 
